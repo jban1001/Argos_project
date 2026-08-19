@@ -21,7 +21,7 @@
 
 bt_navigator:
   ros__parameters:
-    transform_tolerance: 0.5
+    transform_tolerance: 1.0
     global_frame: map
     robot_base_frame: base_link
     odom_topic: /odom
@@ -52,7 +52,7 @@ controller_server:
     # LiDAR 가 3.7~11.8 Hz 로 느려서 20 Hz 는 의미가 없다.
     # Jetson 부하로 10 Hz 도 못 맞춰 경고가 났으므로 8 Hz 로 낮춘다.
     controller_frequency: 8.0
-    costmap_update_timeout: 0.30
+    costmap_update_timeout: 1.0
     min_x_velocity_threshold: 0.001
     min_y_velocity_threshold: 0.5
     min_theta_velocity_threshold: 0.001
@@ -97,7 +97,7 @@ controller_server:
       use_velocity_scaled_lookahead_dist: true
 
       # 느린 LiDAR 때문에 TF 가 늦게 들어온다. 여유를 크게.
-      transform_tolerance: 0.5
+      transform_tolerance: 1.0
       use_collision_detection: true
       max_allowed_time_to_collision_up_to_carrot: 1.5
 
@@ -129,7 +129,7 @@ local_costmap:
       global_frame: odom
       robot_base_frame: base_link
       rolling_window: true
-      transform_tolerance: 0.5
+      transform_tolerance: 1.0
       width: 3
       height: 3
       resolution: 0.05
@@ -168,7 +168,7 @@ global_costmap:
       publish_frequency: 1.0
       global_frame: map
       robot_base_frame: base_link
-      transform_tolerance: 0.5
+      transform_tolerance: 1.0
       footprint: "[[-0.14, -0.265], [-0.14, 0.265], [0.14, 0.265], [0.14, -0.265]]"
       resolution: 0.05
       track_unknown_space: true
@@ -293,7 +293,7 @@ behavior_server:
     local_frame: odom
     global_frame: map
     robot_base_frame: base_link
-    transform_tolerance: 0.1
+    transform_tolerance: 1.0
     simulate_ahead_time: 2.0
     # ARGOS 실측 최대 제자리 회전 0.637 rad/s. 기본값 1.0 은 낼 수 없는 값이다.
     max_rotational_vel: 0.45
