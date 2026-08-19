@@ -37,7 +37,7 @@ from nav2_msgs.action import NavigateToPose
 from tf2_ros import Buffer, TransformListener
 
 
-GOAL_DIST = 1.2          # 목표까지 목표 거리 [m]
+GOAL_DIST = 0.5          # 목표까지 목표 거리 [m]
 CLEARANCE = 0.45         # 목표점 주변 최소 여유 [m]
 TIMEOUT = 120.0
 
