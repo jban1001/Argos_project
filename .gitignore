@@ -23,3 +23,4 @@ __pycache__/
 
 # Large/generated maps if desired
 # maps/*.pgm
+nav_control_debug.csv
