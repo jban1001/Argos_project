@@ -369,6 +369,15 @@ class ArgosBaseDriver(Node):
         left_speed = v - w * self.track_width / 2.0
         right_speed = v + w * self.track_width / 2.0
 
+        # 좌/우 wheel 중 하나라도 최대 속도를 넘으면
+        # 둘 다 같은 비율로 줄여서 Nav2가 요구한 곡률을 유지한다.
+        peak = max(abs(left_speed), abs(right_speed))
+
+        if peak > self.max_wheel_speed:
+            scale = self.max_wheel_speed / peak
+            left_speed *= scale
+            right_speed *= scale
+
         self.left_pwm = self.speed_to_pwm(
             left_speed * self.left_motor_sign
         )
