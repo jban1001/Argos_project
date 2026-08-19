@@ -1,0 +1,44 @@
+argos_base_driver:
+  ros__parameters:
+
+    right_port: /dev/ttyCH341USB0   # 오른쪽 UNO : motor command + right encoder
+    left_port: /dev/ttyCH341USB1    # 왼쪽 UNO   : left encoder
+    baudrate: 115200
+
+    # odometry calibration 과 동일한 effective track width
+    track_width: 0.496243
+
+    # 속도 <-> PWM 실측 선형 모델 (open-loop, PID 아님)
+    #   2026-08-20 calibrate_pwm_speed.py
+    #   제자리 회전 + /odom twist 정상상태 평균, 8점, R^2 = 0.99952
+    #   speed = 0.00139532 * pwm - 0.00932066
+    #   pwm   = pwm_deadband + speed * pwm_gain
+    #
+    #   주의: 이 값은 제자리 회전(skid 마찰 최대) 조건에서 측정한 것이라
+    #         직진 시에는 실제 속도가 이보다 다소 높을 수 있다.
+    max_wheel_speed: 0.1581     # pwm 120 에서의 실측 바퀴 속도 [m/s]
+    pwm_deadband: 6.68
+    pwm_gain: 716.68            # pwm per (m/s)
+    min_pwm: 10
+    max_pwm: 120
+
+    # /cmd_vel 안전 제한 (하드웨어 실제 한계 기준)
+    #   최대 직진 0.158 m/s
+    #   최대 제자리 회전 2*0.158/0.496243 = 0.637 rad/s
+    max_linear_speed: 0.15
+    max_angular_speed: 0.60
+
+    # cmd_vel watchdog [s] : 이 시간 내 명령 없으면 M,0,0
+    cmd_timeout: 0.5
+
+    # 하드웨어 실측: M,a,b 에서 a=RIGHT, b=LEFT
+    #   calibrate_rotation_only.py 가 M,+55,-55 -> LEFT -1.556m / RIGHT +1.561m (CCW)
+    motor_cmd_swap: true
+
+    left_motor_sign: 1.0
+    right_motor_sign: 1.0
+
+    startup_delay: 2.5
+
+    # Nav2 가 TwistStamped 를 쓰게 되면 true 로 변경
+    use_stamped_cmd_vel: false

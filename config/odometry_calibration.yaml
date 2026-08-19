@@ -1,0 +1,7 @@
+wheel_odometry_node:
+  ros__parameters:
+    left_ticks_per_meter: 13640.000000
+    right_ticks_per_meter: 15392.000000
+    left_sign: -1.0
+    right_sign: 1.0
+    track_width: 0.496243

@@ -1,0 +1,87 @@
+# ARGOS slam_toolbox (online async mapping)
+#
+# 기본 예제와 다른 점 / ARGOS 하드웨어에 맞춘 부분:
+#   - base_frame 을 base_footprint 가 아니라 base_link 로 (ARGOS 는 base_link 기준)
+#   - LiDAR 회전수가 3.7 Hz 로 느리므로 minimum_time_interval 을 스캔 주기에 맞춤
+#   - 로봇 최고 속도가 0.158 m/s 로 느리므로 travel 임계값을 낮춤
+#   - IMU 가 없어 yaw 는 wheel odometry 에만 의존 -> 스캔 매칭 의존도를 높게 유지
+
+slam_toolbox:
+  ros__parameters:
+
+    # Plugin params
+    solver_plugin: solver_plugins::CeresSolver
+    ceres_linear_solver: SPARSE_NORMAL_CHOLESKY
+    ceres_preconditioner: SCHUR_JACOBI
+    ceres_trust_strategy: LEVENBERG_MARQUARDT
+    ceres_dogleg_type: TRADITIONAL_DOGLEG
+    ceres_loss_function: None
+
+    # ROS Parameters
+    odom_frame: odom
+    map_frame: map
+    base_frame: base_link
+    scan_topic: /scan
+    use_map_saver: true
+    mode: mapping
+
+    debug_logging: false
+    throttle_scans: 1
+    transform_publish_period: 0.02
+    map_update_interval: 2.0
+    resolution: 0.05
+    restamp_tf: false
+    min_laser_range: 0.12
+    max_laser_range: 8.0
+
+    # LiDAR 가 3.69 Hz (주기 0.271 s) 이므로 그보다 살짝 크게
+    minimum_time_interval: 0.3
+
+    # 스캔이 느려서 TF 조회 여유가 더 필요
+    transform_timeout: 0.3
+    tf_buffer_duration: 30.0
+    stack_size_to_use: 40000000
+    enable_interactive_mode: true
+
+    # General Parameters
+    use_scan_matching: true
+    use_scan_barycenter: true
+
+    # 저속 로봇 + 좁은 실내 -> 기본값 0.5 는 너무 커서 키프레임이 거의 안 생김
+    minimum_travel_distance: 0.2
+    minimum_travel_heading: 0.2
+
+    check_min_dist_and_heading_precisely: false
+    scan_buffer_size: 15
+    scan_buffer_maximum_scan_distance: 10.0
+    link_match_minimum_response_fine: 0.1
+    link_scan_maximum_distance: 1.5
+    loop_search_maximum_distance: 3.0
+    do_loop_closing: true
+    loop_match_minimum_chain_size: 10
+    loop_match_maximum_variance_coarse: 3.0
+    loop_match_minimum_response_coarse: 0.35
+    loop_match_minimum_response_fine: 0.45
+
+    # Correlation Parameters
+    correlation_search_space_dimension: 0.5
+    correlation_search_space_resolution: 0.01
+    correlation_search_space_smear_deviation: 0.1
+
+    # Loop Closure Parameters
+    loop_search_space_dimension: 8.0
+    loop_search_space_resolution: 0.05
+    loop_search_space_smear_deviation: 0.03
+
+    # Scan Matcher Parameters
+    distance_variance_penalty: 0.5
+    angle_variance_penalty: 1.0
+
+    fine_search_angle_offset: 0.00349
+    coarse_search_angle_offset: 0.349
+    coarse_angle_resolution: 0.0349
+    minimum_angle_penalty: 0.9
+    minimum_distance_penalty: 0.5
+    use_response_expansion: true
+    min_pass_through: 2
+    occupancy_threshold: 0.1

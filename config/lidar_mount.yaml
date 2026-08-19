@@ -1,0 +1,25 @@
+# ARGOS LiDAR 장착 위치 (base_link -> laser_frame)
+#
+# 2026-08-20 calibrate_lidar_mount.py 로 실측
+#   - 제자리 회전 약 87도 + 전진/후진 0.31 m, 스캔 ICP 정합
+#   - 8회 측정 평균
+#
+#   x   = +0.118 m   (std 0.014)
+#   y   = -0.002 m   (std 0.006)  -> 0 으로 간주
+#   yaw = +176.8 deg (std 1.8, SEM 0.6) = 3.0858 rad
+#
+# 즉 LiDAR 는 base_link(좌우 구동륜 중심) 보다 약 12 cm 앞에,
+# 거의 정확히 뒤를 향한 상태로 장착되어 있다.
+#
+# TODO(하드웨어 실측 필요):
+#   - x 값을 자로 재서 확인할 것 (구동륜 축 중심 -> LiDAR 회전 중심)
+#   - z 값 0.02 는 이전 launch 의 임시값이며 실측한 적이 없음.
+#     2D SLAM/Nav2 에는 영향이 없지만 정확한 값으로 교체 권장.
+
+base_link_to_laser:
+  x: 0.118
+  y: 0.0
+  z: 0.02
+  roll: 0.0
+  pitch: 0.0
+  yaw: 3.0858

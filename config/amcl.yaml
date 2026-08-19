@@ -1,0 +1,102 @@
+# ARGOS AMCL localization
+#
+# IMU 가 없으므로 자세 추정은 wheel odometry + 2D LiDAR 만으로 한다.
+# 장거리 odometry drift 는 AMCL 의 scan matching 이 map->odom 으로 흡수한다.
+
+amcl:
+  ros__parameters:
+
+    base_frame_id: base_link
+    odom_frame_id: odom
+    global_frame_id: map
+
+    scan_topic: /scan
+
+    # ARGOS 는 differential / skid-steer
+    robot_model_type: "nav2_amcl::DifferentialMotionModel"
+
+    # odometry 잡음 모델
+    #   alpha1 : 회전에서 오는 회전 잡음
+    #   alpha2 : 병진에서 오는 회전 잡음
+    #   alpha3 : 병진에서 오는 병진 잡음
+    #   alpha4 : 회전에서 오는 병진 잡음
+    #
+    # 실측 근거:
+    #   - 직진 1 m 에서 거리 오차 약 2.4%, 횡방향 1.2 cm
+    #   - 제자리 회전 87 deg 에서 scan 대비 오차 약 1%
+    #   - 다만 skid-steer 라 제자리 회전 시 슬립이 커서
+    #     매핑 주행 동안 odom yaw 가 map 기준 크게 밀렸다.
+    #   -> 회전 관련 잡음(alpha1)을 기본값보다 크게 잡는다.
+    alpha1: 0.4
+    alpha2: 0.2
+    alpha3: 0.2
+    alpha4: 0.2
+    alpha5: 0.2
+
+    laser_model_type: "likelihood_field"
+    laser_likelihood_max_dist: 2.0
+
+    # LiDAR 실측 유효 범위
+    laser_min_range: 0.12
+    laser_max_range: 8.0
+
+    max_beams: 120
+
+    max_particles: 2000
+    min_particles: 500
+
+    pf_err: 0.05
+    pf_z: 0.99
+
+    recovery_alpha_fast: 0.0
+    recovery_alpha_slow: 0.0
+
+    resample_interval: 1
+
+    # 로봇 최고 속도가 0.158 m/s 로 느리므로 갱신 임계값을 낮춘다.
+    update_min_a: 0.15
+    update_min_d: 0.15
+
+    # map -> odom TF 를 얼마나 미래까지 유효하게 찍을지.
+    #
+    # 반드시 스캔 주기보다 넉넉히 커야 한다.
+    # LiDAR 가 3.67 Hz(주기 0.272 s)까지 느려지므로 0.3 으로 두면
+    # 여유가 28 ms 밖에 없어서, 스캔이 한 박자만 늦으면
+    # 컨트롤러가 "Lookup would require extrapolation into the future" 로
+    # 실패하고 Nav2 goal 이 abort 된다. (2026-08-20 실제 발생)
+    transform_tolerance: 1.0
+
+    do_beamskip: false
+    beam_skip_distance: 0.5
+    beam_skip_error_threshold: 0.9
+    beam_skip_threshold: 0.3
+
+    sigma_hit: 0.2
+    z_hit: 0.5
+    z_max: 0.05
+    z_rand: 0.5
+    z_short: 0.05
+    lambda_short: 0.1
+
+    tf_broadcast: true
+
+    always_reset_initial_pose: false
+
+    # 기본 시작 위치. 2026-08-20 localization 검증을 통과한 자세.
+    #   check_localization.py 기준 중앙값 0.05 m, 10 cm 이내 83%
+    #
+    # 로봇이 이 자리에 있지 않으면 이 값은 틀린 것이다.
+    # 그 경우 RViz 의 2D Pose Estimate 로 실제 위치를 지정하거나
+    # scripts/check_localization.py 로 어긋난 정도를 먼저 확인할 것.
+    set_initial_pose: true
+    initial_pose:
+      x: 0.128
+      y: 1.424
+      z: 0.0
+      yaw: -1.908
+
+map_server:
+  ros__parameters:
+    yaml_filename: "/home/odyssey/argos_project/maps/argos_lab.yaml"
+    topic_name: "map"
+    frame_id: "map"
