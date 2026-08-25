@@ -203,6 +203,142 @@ def danger_active(
     raise ValueError("gate 는 'mlp' 또는 'yolo' 여야 합니다")
 
 
+def world_to_map_pixel(
+    world_x: float,
+    world_y: float,
+    *,
+    width: int,
+    height: int,
+    resolution: float,
+    origin_x: float,
+    origin_y: float,
+    origin_yaw: float,
+    scale: int = 1,
+) -> Optional[tuple[int, int]]:
+    """map 좌표를 화면 위쪽이 +y인 이미지 pixel로 변환한다."""
+    if width <= 0 or height <= 0 or resolution <= 0.0 or scale <= 0:
+        return None
+
+    dx = world_x - origin_x
+    dy = world_y - origin_y
+    cosine = math.cos(origin_yaw)
+    sine = math.sin(origin_yaw)
+
+    local_x = cosine * dx + sine * dy
+    local_y = -sine * dx + cosine * dy
+    column = local_x / resolution
+    row = height - 1.0 - local_y / resolution
+
+    if not (0.0 <= column < width and 0.0 <= row < height):
+        return None
+
+    return int(round(column * scale)), int(round(row * scale))
+
+
+def render_alert_map(
+    grid: np.ndarray,
+    *,
+    resolution: float,
+    origin_x: float,
+    origin_y: float,
+    origin_yaw: float,
+    robot_x: float,
+    robot_y: float,
+    robot_yaw: float,
+    fire_bearing: Optional[float],
+    direction_line_m: float = 1.5,
+) -> Optional[np.ndarray]:
+    """감지 시점 지도에 로봇 아이콘과 화재 방향 화살표를 그린다.
+
+    주황색 선은 카메라 방위만 뜻하며 화재 거리나 좌표를 뜻하지 않는다.
+    """
+    if grid.ndim != 2 or grid.size == 0 or resolution <= 0.0:
+        return None
+
+    height, width = grid.shape
+    gray = np.full((height, width), 205, dtype=np.uint8)
+    gray[(grid >= 0) & (grid < 65)] = 254
+    gray[grid >= 65] = 0
+
+    image = cv2.cvtColor(np.flipud(gray), cv2.COLOR_GRAY2BGR)
+    scale = max(1, min(4, int(round(800.0 / max(width, height)))))
+    if scale > 1:
+        image = cv2.resize(
+            image,
+            (width * scale, height * scale),
+            interpolation=cv2.INTER_NEAREST,
+        )
+
+    robot_pixel = world_to_map_pixel(
+        robot_x,
+        robot_y,
+        width=width,
+        height=height,
+        resolution=resolution,
+        origin_x=origin_x,
+        origin_y=origin_y,
+        origin_yaw=origin_yaw,
+        scale=scale,
+    )
+    if robot_pixel is None:
+        return image
+
+    # 카메라 화재 방위: 주황색 화살표. 길이는 보기 위한 고정 길이일 뿐이다.
+    if fire_bearing is not None:
+        direction = robot_yaw + float(fire_bearing)
+        line_length = max(0.2, float(direction_line_m))
+        image_direction = direction - origin_yaw
+        pixel_length = line_length / resolution * scale
+        end_pixel = (
+            int(round(robot_pixel[0] + math.cos(image_direction) * pixel_length)),
+            int(round(robot_pixel[1] - math.sin(image_direction) * pixel_length)),
+        )
+        visible, clipped_start, clipped_end = cv2.clipLine(
+            (0, 0, image.shape[1], image.shape[0]),
+            robot_pixel,
+            end_pixel,
+        )
+        if visible:
+            cv2.arrowedLine(
+                image, clipped_start, clipped_end, (255, 255, 255), 8,
+                cv2.LINE_AA, tipLength=0.18,
+            )
+            cv2.arrowedLine(
+                image, clipped_start, clipped_end, (0, 165, 255), 5,
+                cv2.LINE_AA, tipLength=0.18,
+            )
+
+    # 빨간 삼각형은 감지 순간의 로봇 위치와 전방 방향이다.
+    map_heading = robot_yaw - origin_yaw
+    screen_dx = math.cos(map_heading)
+    screen_dy = -math.sin(map_heading)
+    perpendicular_x = -screen_dy
+    perpendicular_y = screen_dx
+    icon_size = max(10, 6 * scale)
+    points = np.asarray([
+        (
+            robot_pixel[0] + screen_dx * icon_size,
+            robot_pixel[1] + screen_dy * icon_size,
+        ),
+        (
+            robot_pixel[0] - screen_dx * icon_size * 0.7
+            + perpendicular_x * icon_size * 0.7,
+            robot_pixel[1] - screen_dy * icon_size * 0.7
+            + perpendicular_y * icon_size * 0.7,
+        ),
+        (
+            robot_pixel[0] - screen_dx * icon_size * 0.7
+            - perpendicular_x * icon_size * 0.7,
+            robot_pixel[1] - screen_dy * icon_size * 0.7
+            - perpendicular_y * icon_size * 0.7,
+        ),
+    ], dtype=np.int32)
+    cv2.fillConvexPoly(image, points, (0, 0, 255), cv2.LINE_AA)
+    cv2.polylines(image, [points], True, (255, 255, 255), 2, cv2.LINE_AA)
+
+    return image
+
+
 class FireNavPatrol(Node):
 
     def __init__(self) -> None:
@@ -219,6 +355,7 @@ class FireNavPatrol(Node):
         self._map_resolution = 0.0
         self._map_origin_x = 0.0
         self._map_origin_y = 0.0
+        self._map_origin_yaw = 0.0
         self._pose: Optional[PoseWithCovarianceStamped] = None
         self._initial_pose_received = not self.require_initial_pose
 
@@ -323,6 +460,8 @@ class FireNavPatrol(Node):
             "telegram_confirm_seconds": 1.0,
             "telegram_cooldown_seconds": 60.0,
             "telegram_send_photo": True,
+            "telegram_direction_line_m": 1.5,
+            "telegram_mlp_ignore_spark": True,
             "require_initial_pose": True,
             "patrol_min_radius": 0.8,
             "patrol_max_radius": 2.5,
@@ -384,6 +523,12 @@ class FireNavPatrol(Node):
             value("telegram_cooldown_seconds")
         )
         self.telegram_send_photo = bool(value("telegram_send_photo"))
+        self.telegram_direction_line_m = float(
+            value("telegram_direction_line_m")
+        )
+        self.telegram_mlp_ignore_spark = bool(
+            value("telegram_mlp_ignore_spark")
+        )
         self.require_initial_pose = bool(value("require_initial_pose"))
 
         self.patrol_min_radius = float(value("patrol_min_radius"))
@@ -422,12 +567,44 @@ class FireNavPatrol(Node):
         self.initial_pose_topic = str(value("initial_pose_topic"))
         self.scan_topic = str(value("scan_topic"))
 
-    def map_position(self) -> Optional[tuple[float, float]]:
+    def alert_snapshot(
+        self,
+        fire_bearing: Optional[float],
+    ) -> tuple[
+        Optional[tuple[float, float, float]],
+        Optional[np.ndarray],
+    ]:
+        """경보 순간의 pose와 map을 같은 lock에서 고정해 렌더링한다."""
         with self._data_lock:
             if self._pose is None:
-                return None
+                return None, None
             point = self._pose.pose.pose.position
-            return float(point.x), float(point.y)
+            pose = (
+                float(point.x),
+                float(point.y),
+                yaw_from_quat(self._pose.pose.pose.orientation),
+            )
+            if self._map_grid is None:
+                return pose, None
+            grid = self._map_grid.copy()
+            resolution = self._map_resolution
+            origin_x = self._map_origin_x
+            origin_y = self._map_origin_y
+            origin_yaw = self._map_origin_yaw
+
+        image = render_alert_map(
+            grid,
+            resolution=resolution,
+            origin_x=origin_x,
+            origin_y=origin_y,
+            origin_yaw=origin_yaw,
+            robot_x=pose[0],
+            robot_y=pose[1],
+            robot_yaw=pose[2],
+            fire_bearing=fire_bearing,
+            direction_line_m=self.telegram_direction_line_m,
+        )
+        return pose, image
 
     # ---------------- 입력 ----------------
 
@@ -445,6 +622,7 @@ class FireNavPatrol(Node):
             self._map_resolution = float(msg.info.resolution)
             self._map_origin_x = float(msg.info.origin.position.x)
             self._map_origin_y = float(msg.info.origin.position.y)
+            self._map_origin_yaw = yaw_from_quat(msg.info.origin.orientation)
 
     def _pose_cb(self, msg: PoseWithCovarianceStamped) -> None:
         with self._data_lock:
@@ -811,10 +989,16 @@ def load_detector(node: FireNavPatrol):
     module.REQUIRE_SENSOR_GATE = (
         node.telegram_enabled and node.telegram_gate == "mlp"
     )
+    module.MLP_IGNORE_SPARK = node.telegram_mlp_ignore_spark
     module.YOLO_ONLY_FIRE_CONF = node.fire_conf
     module.SHOW_WINDOW = False
 
     detector = module.FireDetector()
+    if module.REQUIRE_SENSOR_GATE and module.MLP_IGNORE_SPARK:
+        node.get_logger().info(
+            "MLP spark_conf 마스킹 활성화: YOLO spark 표시는 유지하고 "
+            "경보 MLP 입력만 0으로 사용"
+        )
     return module, detector
 
 
@@ -980,17 +1164,20 @@ def run() -> int:
                     clear_m,
                     scan_ok,
                 )
+                pose_at_alert, map_frame = node.alert_snapshot(bearing)
                 message = alerter_module.build_message(
                     detection,
                     gate=node.telegram_gate,
                     threshold=alert_threshold,
                     robot_state=state,
                     front_clearance=clear_m,
-                    pose=node.map_position(),
+                    pose=pose_at_alert,
+                    fire_bearing=bearing,
                 )
                 if alerter.enqueue(
                     text=message,
                     frame=alert_frame,
+                    map_frame=map_frame,
                     probability=alert_probability,
                 ):
                     # new_main.py와 같이 전송 후 연속 확인 시간을 다시 잰다.

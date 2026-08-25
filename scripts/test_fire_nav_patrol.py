@@ -102,9 +102,47 @@ def test_danger_gates():
     assert not module.danger_active(detection, "yolo", 0.70, 0.20)
 
 
+def test_alert_map_overlay():
+    grid = np.zeros((100, 120), dtype=np.int16)
+    grid[:, 0] = 100
+    grid[:, -1] = 100
+    grid[0, :] = 100
+    grid[-1, :] = 100
+
+    image = module.render_alert_map(
+        grid,
+        resolution=0.05,
+        origin_x=-3.0,
+        origin_y=-2.5,
+        origin_yaw=0.0,
+        robot_x=0.0,
+        robot_y=0.0,
+        robot_yaw=0.0,
+        fire_bearing=math.radians(15.0),
+        direction_line_m=1.5,
+    )
+
+    assert image is not None
+    assert image.ndim == 3 and image.shape[2] == 3
+    red_pixels = np.count_nonzero(
+        (image[:, :, 2] > 200)
+        & (image[:, :, 1] < 80)
+        & (image[:, :, 0] < 80)
+    )
+    orange_pixels = np.count_nonzero(
+        (image[:, :, 2] > 200)
+        & (image[:, :, 1] > 100)
+        & (image[:, :, 1] < 220)
+        & (image[:, :, 0] < 80)
+    )
+    assert red_pixels > 20
+    assert orange_pixels > 20
+
+
 if __name__ == "__main__":
     test_sector_clearance()
     test_select_patrol_target_in_free_space()
     test_unknown_start_is_rejected()
     test_danger_gates()
+    test_alert_map_overlay()
     print("fire_nav_patrol tests: OK")

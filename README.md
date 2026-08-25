@@ -125,16 +125,24 @@ Nav2 /cmd_vel_nav_auto ─┐
 
 `~/YOLO` 원본은 수정하지 않는다. 사용자가 만든 `~/YOLO/YOLO_BACK`의 모델과 `telegram_alert.py`만 사용한다.
 
-텔레그램 기본 경보 조건은 `new_main.py`와 동일하다.
+텔레그램 기본 경보 조건은 `new_main.py`의 센서+MLP 방식을 따른다. 다만
+현재 `fire_mlp.pkl`에는 실제 spark 학습자료가 부족하므로 ARGOS 순찰에서는
+기본적으로 MLP 입력의 `spark_conf`만 0으로 마스킹한다.
 
 - Arduino 온도/가스 센서 연결 정상
 - MLP 위험확률 70% 이상
 - 위 조건이 1초 연속 유지
 - 메시지와 감지 사진 전송
+- 감지 순간의 고정맵에 빨간 로봇 아이콘과 주황색 화재 방향선을 표시해 별도 전송
 - 같은 위험이 계속되면 60초 간격으로 재전송
 - 메시지에 YOLO 클래스 confidence, 온도, 가스, 로봇 상태와 map 위치 포함
 
 설정은 `config/fire_nav_patrol.yaml`의 `telegram_*` 항목에서 조정한다. 기본 `telegram_gate: mlp`가 최종 운용 설정이다. 현재 MLP의 현장 오탐을 확인하는 시연 단계에서만 다음처럼 `yolo`로 바꿀 수 있다.
+
+`telegram_mlp_ignore_spark: true`여도 YOLO 화면의 spark 박스/confidence와
+텔레그램 메시지의 spark 탐지값은 그대로 남는다. 오직 MLP 경보확률을 계산할
+때만 spark 값을 0으로 넣는다. 나중에 실제 spark 양성·음성 데이터를 포함해
+MLP를 다시 학습한 뒤에는 이 값을 `false`로 바꿀 수 있다.
 
 ```yaml
 telegram_gate: yolo
@@ -142,6 +150,8 @@ telegram_yolo_conf: 0.20
 ```
 
 접근 동작 자체는 MLP 단독 오탐으로 로봇이 움직이지 않도록 YOLO의 실제 `fire` bbox와 방위각을 사용한다. 텔레그램 자격정보는 환경변수, `YOLO_BACK/telegram_config.json`, 기존 백업 설정 순으로 읽으며 토큰을 로그에 출력하지 않는다.
+
+지도 사진의 빨간 삼각형은 경보가 확정된 순간의 AMCL 로봇 위치와 전방 방향이다. 주황색 화살표는 `로봇 yaw + 카메라 fire bearing`으로 계산한 방향만 나타낸다. 화재 거리 센서가 없으므로 화살표 길이는 실제 거리나 화재 좌표를 뜻하지 않는다. `/map`이나 `/amcl_pose`가 아직 없다면 카메라 경보는 보내되 지도 사진은 생략한다.
 
 현재 MLP가 충분히 학습되지 않았다면 오탐이 생길 수 있으므로, 시연 전에는 사람이 비상 정지할 수 있는 거리에서 낮은 속도로 시험한다.
 

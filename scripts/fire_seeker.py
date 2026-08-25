@@ -163,6 +163,11 @@ FEATURE_COLUMNS = [
     "gas_change",
 ]
 
+# spark 양성/음성 데이터가 충분하지 않은 기존 MLP에서는 작은 오탐도
+# 위험확률을 크게 올릴 수 있다. ARGOS 순찰 실행기가 True로 바꾸면 실제
+# YOLO spark 표시는 유지하되 MLP에 넣는 spark_conf만 0으로 마스킹한다.
+MLP_IGNORE_SPARK = False
+
 CHANGE_WINDOW_SECONDS = 2.0
 
 FIRE_PROB_THRESHOLD = 0.70
@@ -172,6 +177,13 @@ CONFIRM_SECONDS = 1.0
 
 # False 로 두면 아두이노/MLP 없이 YOLO confidence 만으로 판단한다
 REQUIRE_SENSOR_GATE = True
+
+
+def mlp_spark_feature(confs):
+    """MLP에 넣을 spark confidence를 반환한다."""
+    if MLP_IGNORE_SPARK:
+        return 0.0
+    return float(confs.get("spark", 0.0))
 
 # REQUIRE_SENSOR_GATE = False 일 때 쓰는 기준
 YOLO_ONLY_FIRE_CONF = 0.40
@@ -929,7 +941,7 @@ class FireDetector:
                     confs["fire"],
                     confs["smoke"],
                     confs["cigarette_butt"],
-                    confs["spark"],
+                    mlp_spark_feature(confs),
                     ir_temperature,
                     gas_raw,
                     temp_change,

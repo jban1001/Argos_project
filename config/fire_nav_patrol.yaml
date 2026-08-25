@@ -26,6 +26,11 @@ fire_nav_patrol:
     telegram_confirm_seconds: 1.0
     telegram_cooldown_seconds: 60.0
     telegram_send_photo: true
+    # 지도에 표시할 주황색 방향선 길이. 화재 거리값이 아니라 시각화용이다.
+    telegram_direction_line_m: 1.5
+    # spark 학습자료가 부족한 기존 MLP에는 spark_conf를 0으로 넣는다.
+    # 실제 YOLO spark 표시와 텔레그램 메시지의 탐지값은 그대로 유지된다.
+    telegram_mlp_ignore_spark: true
 
     # 사용자가 실외 맵에서 2D Pose Estimate 를 한 뒤에만 순찰한다.
     require_initial_pose: true
