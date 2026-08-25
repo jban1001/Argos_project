@@ -1,0 +1,57 @@
+# ARGOS Nav2 순찰 + 화재 접근
+#
+# ~/YOLO 의 모델은 읽기만 한다. 이 설정과 실행 노드는 YOLO 폴더를
+# 생성, 수정 또는 삭제하지 않는다.
+
+fire_nav_patrol:
+  ros__parameters:
+
+    # 화재 인식
+    detector_script: /home/odyssey/argos_project/scripts/fire_seeker.py
+    fire_conf: 0.20
+    confirm_seconds: 1.0
+    bearing_hold_seconds: 1.2
+    lost_seconds: 2.0
+    hold_release_seconds: 5.0
+    show_camera: true
+
+    # 사용자가 실외 맵에서 2D Pose Estimate 를 한 뒤에만 순찰한다.
+    require_initial_pose: true
+
+    # 자동 순찰 목표 선택
+    patrol_min_radius: 0.8
+    patrol_max_radius: 2.5
+    # 차체 외접반경(약 0.30 m)보다 조금 크게. 실제 경로 충돌 검사는
+    # Nav2 global/local costmap 이 다시 수행한다.
+    patrol_clearance: 0.35
+    patrol_goal_timeout: 75.0
+    patrol_retry_delay: 1.5
+    patrol_sample_attempts: 120
+    patrol_free_max: 10
+
+    # 화재 접근
+    fire_stop_pause: 0.7
+    align_tolerance_deg: 8.0
+    realign_deg: 26.0
+    turn_kp: 1.2
+    align_w_max: 0.35
+    approach_v: 0.08
+    approach_w_max: 0.25
+    fire_stop_dist: 0.60
+    approach_max_seconds: 25.0
+
+    # LiDAR / 속도 중재 안전 조건
+    scan_timeout: 1.5
+    front_half_angle_deg: 25.0
+    nav_cmd_timeout: 0.50
+    fire_cmd_timeout: 0.30
+    mux_rate: 20.0
+
+    # 토픽
+    nav_cmd_topic: /cmd_vel_nav_auto
+    fire_cmd_topic: /cmd_vel_fire
+    output_cmd_topic: /cmd_vel_nav
+    map_topic: /map
+    pose_topic: /amcl_pose
+    initial_pose_topic: /initialpose
+    scan_topic: /scan

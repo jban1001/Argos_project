@@ -24,3 +24,4 @@ __pycache__/
 # Large/generated maps if desired
 # maps/*.pgm
 nav_control_debug.csv
+maps/fire_detect_best.jpg

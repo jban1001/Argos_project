@@ -1,8 +1,19 @@
 argos_base_driver:
   ros__parameters:
 
-    right_port: /dev/ttyCH341USB0   # 오른쪽 UNO : motor command + right encoder
-    left_port: /dev/ttyCH341USB1    # 왼쪽 UNO   : left encoder
+    # 아래 두 값은 "후보" 일 뿐이다.
+    # 실제 좌우는 auto_detect_ports 가 보드의 'L=' / 'R=' 접두사로 판별한다.
+    #
+    #   R= : right_motor_encoder.ino  (오른쪽 엔코더 + 모터 제어)
+    #   L= : left_encoder_nav.ino     (왼쪽 엔코더 전용)
+    #
+    # CH340 두 개는 VID:PID 가 같고 시리얼 번호가 없어서
+    # USB0 / USB1 순서가 재부팅이나 재연결로 뒤바뀐다.
+    # 2026-08-25 실제로 뒤바뀌어 모터가 전혀 안 움직였다.
+    right_port: /dev/ttyCH341USB0   # motor command + right encoder 후보
+    left_port: /dev/ttyCH341USB1    # left encoder 후보
+
+    auto_detect_ports: true
     baudrate: 115200
 
     # odometry calibration 과 동일한 effective track width

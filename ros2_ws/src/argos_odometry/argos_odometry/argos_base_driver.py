@@ -58,6 +58,18 @@ class ArgosBaseDriver(Node):
         self.declare_parameter("left_port", "/dev/ttyCH341USB1")
         self.declare_parameter("baudrate", 115200)
 
+        # 포트 이름 대신 보드가 스스로 밝히는 접두사로 좌우를 판별한다.
+        #
+        #   "R=" : right_motor_encoder.ino  (오른쪽 엔코더 + 모터 제어)
+        #   "L=" : left_encoder_nav.ino     (왼쪽 엔코더 전용)
+        #
+        # CH340 두 개는 VID:PID 가 같고 시리얼 번호도 없어서
+        # /dev/ttyCH341USB0,1 의 순서가 재부팅이나 재연결로 뒤바뀔 수 있다.
+        # 2026-08-25 에 실제로 뒤바뀌어, 모터 명령을 받는 포트에
+        # 엔코더 전용 보드가 물리는 바람에 로봇이 전혀 움직이지 않았다.
+        # (M,... 을 그 보드가 그냥 무시한다)
+        self.declare_parameter("auto_detect_ports", True)
+
         # calibration 에서 얻은 effective track width
         self.declare_parameter("track_width", 0.496243)
 
@@ -97,6 +109,8 @@ class ArgosBaseDriver(Node):
         self.left_port = str(g("left_port").value)
         self.baudrate = int(g("baudrate").value)
 
+        self.auto_detect_ports = bool(g("auto_detect_ports").value)
+
         self.track_width = float(g("track_width").value)
 
         self.max_wheel_speed = float(g("max_wheel_speed").value)
@@ -123,17 +137,53 @@ class ArgosBaseDriver(Node):
         # Serial
         # -----------------------------
 
-        self.right_ser = serial.Serial(
-            self.right_port,
-            self.baudrate,
-            timeout=0
+        ser_a = serial.Serial(self.right_port, self.baudrate, timeout=0)
+        ser_b = serial.Serial(self.left_port, self.baudrate, timeout=0)
+
+        self.get_logger().info(
+            "Waiting for Arduino startup..."
         )
 
-        self.left_ser = serial.Serial(
-            self.left_port,
-            self.baudrate,
-            timeout=0
-        )
+        # 포트를 여는 순간 아두이노가 리셋되므로 기다렸다가 읽는다
+        time.sleep(self.startup_delay)
+
+        ser_a.reset_input_buffer()
+        ser_b.reset_input_buffer()
+
+        if self.auto_detect_ports:
+
+            role_a = self.detect_role(ser_a)
+            role_b = self.detect_role(ser_b)
+
+            self.get_logger().info(
+                f"detect: {self.right_port} -> {role_a or '?'}, "
+                f"{self.left_port} -> {role_b or '?'}"
+            )
+
+            if role_a == "R" and role_b == "L":
+                pass
+
+            elif role_a == "L" and role_b == "R":
+
+                self.get_logger().warn(
+                    "포트가 설정과 반대다. 자동으로 바꿔서 쓴다. "
+                    f"MOTOR/RIGHT={self.left_port}, "
+                    f"LEFT={self.right_port}"
+                )
+
+                ser_a, ser_b = ser_b, ser_a
+                self.right_port, self.left_port = (
+                    self.left_port, self.right_port
+                )
+
+            else:
+                self.get_logger().warn(
+                    "좌우 판별 실패. 설정값을 그대로 쓴다. "
+                    "아두이노 스케치가 'L=' / 'R=' 을 내는지 확인할 것."
+                )
+
+        self.right_ser = ser_a
+        self.left_ser = ser_b
 
         self.get_logger().info(
             f"RIGHT / MOTOR : {self.right_port}"
@@ -142,12 +192,6 @@ class ArgosBaseDriver(Node):
         self.get_logger().info(
             f"LEFT          : {self.left_port}"
         )
-
-        self.get_logger().info(
-            "Waiting for Arduino startup..."
-        )
-
-        time.sleep(self.startup_delay)
 
         self.right_ser.reset_input_buffer()
         self.left_ser.reset_input_buffer()
@@ -231,6 +275,60 @@ class ArgosBaseDriver(Node):
         self.get_logger().info(
             "ARGOS BASE DRIVER READY"
         )
+
+    # =====================================================
+    # 포트 자동 판별
+    # =====================================================
+
+    def detect_role(self, ser, timeout=2.0):
+        """
+        보드가 내보내는 접두사로 역할을 알아낸다.
+
+        반환 "R" : right_motor_encoder.ino (모터 제어가 있는 보드)
+             "L" : left_encoder_nav.ino
+             None: 판별 실패
+
+        두 접두사가 섞여 들어오면 더 많이 나온 쪽을 택한다.
+        """
+
+        counts = {"L": 0, "R": 0}
+
+        buf = b""
+
+        end = time.monotonic() + timeout
+
+        while time.monotonic() < end:
+
+            try:
+                data = ser.read(512)
+
+            except Exception:
+                break
+
+            if not data:
+                time.sleep(0.02)
+                continue
+
+            buf += data
+
+            while b"\n" in buf:
+
+                line, buf = buf.split(b"\n", 1)
+
+                text = line.decode("utf-8", errors="ignore").strip()
+
+                if text.startswith("L="):
+                    counts["L"] += 1
+                elif text.startswith("R="):
+                    counts["R"] += 1
+
+            if counts["L"] + counts["R"] >= 5:
+                break
+
+        if counts["L"] == counts["R"]:
+            return None
+
+        return "L" if counts["L"] > counts["R"] else "R"
 
     # =====================================================
     # Encoder

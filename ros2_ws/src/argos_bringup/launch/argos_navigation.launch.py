@@ -53,17 +53,23 @@ def generate_launch_description():
     bringup_share = get_package_share_directory("argos_bringup")
 
     params_file = LaunchConfiguration("nav2_params_file")
+    nav_cmd_vel_topic = LaunchConfiguration("nav_cmd_vel_topic")
+    map_yaml = LaunchConfiguration("map")
 
     common = [("/tf", "tf"), ("/tf_static", "tf_static")]
 
-    to_nav = common + [("cmd_vel", "cmd_vel_nav")]
+    # 기본값은 기존과 동일한 /cmd_vel_nav 이다. 화재 순찰 통합 launch 는
+    # Nav2 출력을 /cmd_vel_nav_auto 로 분리한 뒤 우선순위 중재 노드가
+    # /cmd_vel_nav 으로 전달한다.
+    to_nav = common + [("cmd_vel", nav_cmd_vel_topic)]
 
     localization = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(
                 bringup_share, "launch", "argos_localization.launch.py"
             )
-        )
+        ),
+        launch_arguments={"map": map_yaml}.items(),
     )
 
     def nav_node(pkg, exe, name, remappings):
@@ -120,6 +126,18 @@ def generate_launch_description():
                 ARGOS_CONFIG, "nav2_params.yaml"
             ),
             description="Nav2 파라미터 파일",
+        ),
+        DeclareLaunchArgument(
+            "map",
+            default_value=os.path.expanduser(
+                "~/argos_project/maps/argos_lab.yaml"
+            ),
+            description="localization / navigation 에 사용할 저장 맵",
+        ),
+        DeclareLaunchArgument(
+            "nav_cmd_vel_topic",
+            default_value="cmd_vel_nav",
+            description="controller / behavior server 출력 속도 토픽",
         ),
         localization,
         *nodes,

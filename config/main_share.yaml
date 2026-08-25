@@ -1,0 +1,33 @@
+# Main Robot -> Follower 공유 계층 (argos_main_share)
+#
+# 출력
+#   /main/pose        geometry_msgs/PoseStamped  frame_id=map   20 Hz
+#   /main/trajectory  nav_msgs/Path              frame_id=map    2 Hz  (latched)
+#   /main/map         nav_msgs/OccupancyGrid     frame_id=map          (latched)
+#
+# 메인봇 내부 프레임(odom / base_link)은 그대로 둔다.
+# Follower 는 /main/pose 를 받아 자기 TF 트리에 map -> main_base_link 를 세운다.
+# 이렇게 해야 두 로봇이 같은 base_link / odom 을 쓰지 않는다.
+
+main_share_node:
+  ros__parameters:
+
+    # 메인봇 내부 프레임. 개명하지 않는다.
+    map_frame: map
+    base_frame: base_link
+
+    pose_rate: 20.0
+    trajectory_rate: 2.0
+
+    # 궤적 점 사이 최소 간격 [m]
+    # leader_link.py 에서 검증된 값과 동일하게 유지
+    trail_spacing: 0.08
+
+    # 0.08 m x 500 = 약 40 m 기억
+    trail_max_points: 500
+
+    # 이보다 오래된 TF 는 쓰지 않는다 [s]
+    # 값이 없으면 발행을 멈춘다 (stale 재발행 금지)
+    tf_timeout: 0.30
+
+    relay_map: true
