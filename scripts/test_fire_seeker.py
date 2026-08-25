@@ -39,6 +39,39 @@ fs.LOST_SECONDS = 0.5
 fs.PATROL_MODE = "bounce"
 
 
+# spark HUD는 0.60 이상만 표시하되 다른 클래스 표시에는 영향이 없어야 한다.
+original_spark_display_conf = fs.SPARK_DISPLAY_CONF
+fs.SPARK_DISPLAY_CONF = 0.60
+assert not fs.should_display_detection("spark", 0.59)
+assert fs.should_display_detection("spark", 0.60)
+assert fs.should_display_detection("fire", 0.20)
+fs.SPARK_DISPLAY_CONF = original_spark_display_conf
+
+
+def spark_hud_red_pixels(confidence):
+    frame = np.zeros((280, 400, 3), dtype=np.uint8)
+    det = {
+        "frame": frame,
+        "bearing": 0.0,
+        "bearing_box": (160, 190, 240, 250),
+        "bearing_class": "spark",
+        "bearing_conf": confidence,
+        "prob": 0.0,
+        "sensor_ok": False,
+        "confs": {c: 0.0 for c in fs.TARGET_CLASSES},
+    }
+    image = fs.draw_hud(det, "TEST", 1.0, True)
+    return np.count_nonzero(
+        (image[:, :, 0] == 0)
+        & (image[:, :, 1] == 0)
+        & (image[:, :, 2] == 255)
+    )
+
+
+assert spark_hud_red_pixels(0.59) == 0
+assert spark_hud_red_pixels(0.60) > 0
+
+
 # 실제 spark 탐지값은 보존하면서 MLP 입력에만 가중치를 적용해야 한다.
 sample_confs = {"spark": 0.20}
 original_spark_weight = fs.MLP_SPARK_WEIGHT

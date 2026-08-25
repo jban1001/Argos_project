@@ -139,11 +139,14 @@ Nav2 /cmd_vel_nav_auto ─┐
 
 설정은 `config/fire_nav_patrol.yaml`의 `telegram_*` 항목에서 조정한다. 기본 `telegram_gate: mlp`가 최종 운용 설정이다. 현재 MLP의 현장 오탐을 확인하는 시연 단계에서만 다음처럼 `yolo`로 바꿀 수 있다.
 
-`telegram_mlp_spark_weight: 0.10`이어도 YOLO 화면의 spark 박스/confidence와
+`telegram_mlp_spark_weight: 0.10`이어도 내부 YOLO spark confidence와
 텔레그램 메시지의 spark 탐지값은 그대로 남는다. 오직 MLP 경보확률을 계산할
 때만 spark 값을 10%로 줄인다. 예를 들어 화면의 `0.20`은 MLP에 `0.02`로
 입력된다. 나중에 실제 spark 양성·음성 데이터를 포함해 MLP를 다시 학습한
 뒤에는 이 값을 `1.0`으로 바꿀 수 있다.
+
+카메라 HUD의 spark 박스와 방위 표시는 `spark_display_conf: 0.60` 이상일
+때만 나타난다. 이 표시 기준은 내부 감지값이나 MLP 입력에는 영향을 주지 않는다.
 
 ```yaml
 telegram_gate: yolo

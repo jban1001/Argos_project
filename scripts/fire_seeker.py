@@ -144,6 +144,10 @@ ARDUINO_BAUDRATE = 115200
 CONF_THRES = 0.01
 TARGET_CLASSES = ["fire", "smoke", "cigarette_butt", "spark"]
 
+# spark는 오탐 박스가 화면을 어지럽히지 않도록 이 confidence 이상일 때만
+# HUD에 표시한다. 감지값과 MLP 입력에는 별도로 계속 반영된다.
+SPARK_DISPLAY_CONF = 0.60
+
 # 이 confidence 이상인 bbox 만 "방향" 근거로 쓴다.
 BEARING_CONF = 0.10
 
@@ -183,6 +187,13 @@ def mlp_spark_feature(confs):
     """가중치를 적용한 MLP용 spark confidence를 반환한다."""
     weight = max(0.0, float(MLP_SPARK_WEIGHT))
     return float(confs.get("spark", 0.0)) * weight
+
+
+def should_display_detection(class_name, confidence):
+    """클래스별 HUD 표시 조건을 반환한다."""
+    if class_name == "spark":
+        return float(confidence) >= float(SPARK_DISPLAY_CONF)
+    return True
 
 # REQUIRE_SENSOR_GATE = False 일 때 쓰는 기준
 YOLO_ONLY_FIRE_CONF = 0.40
@@ -884,6 +895,8 @@ class FireDetector:
         # ---- 방위각 ----
         bearing = None
         bearing_box = None
+        bearing_class = None
+        bearing_conf = 0.0
 
         for name in BEARING_CLASSES:
 
@@ -905,6 +918,8 @@ class FireDetector:
             )
 
             bearing_box = boxes[name]["box"]
+            bearing_class = name
+            bearing_conf = float(boxes[name]["conf"])
             break
 
         # ---- 센서 + MLP ----
@@ -965,6 +980,8 @@ class FireDetector:
             "confs": confs,
             "bearing": bearing,
             "bearing_box": bearing_box,
+            "bearing_class": bearing_class,
+            "bearing_conf": bearing_conf,
             "prob": prob,
             "sensor_ok": sensor_ok,
             "gas": gas_raw,
@@ -987,12 +1004,16 @@ def draw_hud(det, state, clear_m, scan_ok=True):
 
     frame = det["frame"]
 
-    if det.get("bearing_box") is not None:
+    display_bearing = should_display_detection(
+        det.get("bearing_class"), det.get("bearing_conf", 0.0)
+    )
+
+    if display_bearing and det.get("bearing_box") is not None:
         x1, y1, x2, y2 = det["bearing_box"]
         cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
 
     bearing_text = (
-        "none" if det["bearing"] is None
+        "none" if det["bearing"] is None or not display_bearing
         else f"{math.degrees(det['bearing']):+.1f}deg"
     )
 

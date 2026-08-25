@@ -450,6 +450,7 @@ class FireNavPatrol(Node):
             "lost_seconds": 2.0,
             "hold_release_seconds": 5.0,
             "show_camera": True,
+            "spark_display_conf": 0.60,
             "telegram_enabled": True,
             "telegram_alert_script": str(
                 Path.home() / "YOLO" / "YOLO_BACK" / "telegram_alert.py"
@@ -507,6 +508,7 @@ class FireNavPatrol(Node):
         self.lost_seconds = float(value("lost_seconds"))
         self.hold_release_seconds = float(value("hold_release_seconds"))
         self.show_camera = bool(value("show_camera"))
+        self.spark_display_conf = float(value("spark_display_conf"))
         self.telegram_enabled = bool(value("telegram_enabled"))
         self.telegram_alert_script = str(value("telegram_alert_script"))
         self.telegram_gate = str(value("telegram_gate")).strip().lower()
@@ -990,13 +992,14 @@ def load_detector(node: FireNavPatrol):
         node.telegram_enabled and node.telegram_gate == "mlp"
     )
     module.MLP_SPARK_WEIGHT = node.telegram_mlp_spark_weight
+    module.SPARK_DISPLAY_CONF = node.spark_display_conf
     module.YOLO_ONLY_FIRE_CONF = node.fire_conf
     module.SHOW_WINDOW = False
 
     detector = module.FireDetector()
     if module.REQUIRE_SENSOR_GATE and module.MLP_SPARK_WEIGHT != 1.0:
         node.get_logger().info(
-            "MLP spark_conf 가중치 적용: YOLO spark 표시는 유지하고 "
+            "MLP spark_conf 가중치 적용: YOLO spark 감지값은 유지하고 "
             f"경보 MLP 입력에는 {module.MLP_SPARK_WEIGHT:.2f}배로 사용"
         )
     return module, detector

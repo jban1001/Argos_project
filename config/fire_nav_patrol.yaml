@@ -15,6 +15,9 @@ fire_nav_patrol:
     lost_seconds: 2.0
     hold_release_seconds: 5.0
     show_camera: true
+    # spark 박스/방위는 confidence 0.60 이상일 때만 카메라 HUD에 표시한다.
+    # 낮은 spark 값도 MLP에는 아래 가중치를 적용해 계속 반영한다.
+    spark_display_conf: 0.60
 
     # 텔레그램 위험 알림. 기본값은 new_main.py와 동일하게
     # 센서 연결 + MLP 70% 이상 1초 유지, 재전송 간격 60초이다.
