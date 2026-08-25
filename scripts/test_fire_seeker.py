@@ -39,15 +39,17 @@ fs.LOST_SECONDS = 0.5
 fs.PATROL_MODE = "bounce"
 
 
-# 실제 spark 탐지값은 보존하면서 MLP 입력만 선택적으로 마스킹해야 한다.
+# 실제 spark 탐지값은 보존하면서 MLP 입력에만 가중치를 적용해야 한다.
 sample_confs = {"spark": 0.20}
-original_ignore_spark = fs.MLP_IGNORE_SPARK
-fs.MLP_IGNORE_SPARK = True
+original_spark_weight = fs.MLP_SPARK_WEIGHT
+fs.MLP_SPARK_WEIGHT = 0.0
 assert fs.mlp_spark_feature(sample_confs) == 0.0
 assert sample_confs["spark"] == 0.20
-fs.MLP_IGNORE_SPARK = False
+fs.MLP_SPARK_WEIGHT = 0.10
+assert abs(fs.mlp_spark_feature(sample_confs) - 0.02) < 1e-9
+fs.MLP_SPARK_WEIGHT = 1.0
 assert fs.mlp_spark_feature(sample_confs) == 0.20
-fs.MLP_IGNORE_SPARK = original_ignore_spark
+fs.MLP_SPARK_WEIGHT = original_spark_weight
 
 
 # (bearing_deg, is_fire, front, left, right, scan_fresh)

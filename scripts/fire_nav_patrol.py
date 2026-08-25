@@ -461,7 +461,7 @@ class FireNavPatrol(Node):
             "telegram_cooldown_seconds": 60.0,
             "telegram_send_photo": True,
             "telegram_direction_line_m": 1.5,
-            "telegram_mlp_ignore_spark": True,
+            "telegram_mlp_spark_weight": 0.10,
             "require_initial_pose": True,
             "patrol_min_radius": 0.8,
             "patrol_max_radius": 2.5,
@@ -526,8 +526,8 @@ class FireNavPatrol(Node):
         self.telegram_direction_line_m = float(
             value("telegram_direction_line_m")
         )
-        self.telegram_mlp_ignore_spark = bool(
-            value("telegram_mlp_ignore_spark")
+        self.telegram_mlp_spark_weight = max(
+            0.0, float(value("telegram_mlp_spark_weight"))
         )
         self.require_initial_pose = bool(value("require_initial_pose"))
 
@@ -989,15 +989,15 @@ def load_detector(node: FireNavPatrol):
     module.REQUIRE_SENSOR_GATE = (
         node.telegram_enabled and node.telegram_gate == "mlp"
     )
-    module.MLP_IGNORE_SPARK = node.telegram_mlp_ignore_spark
+    module.MLP_SPARK_WEIGHT = node.telegram_mlp_spark_weight
     module.YOLO_ONLY_FIRE_CONF = node.fire_conf
     module.SHOW_WINDOW = False
 
     detector = module.FireDetector()
-    if module.REQUIRE_SENSOR_GATE and module.MLP_IGNORE_SPARK:
+    if module.REQUIRE_SENSOR_GATE and module.MLP_SPARK_WEIGHT != 1.0:
         node.get_logger().info(
-            "MLP spark_conf 마스킹 활성화: YOLO spark 표시는 유지하고 "
-            "경보 MLP 입력만 0으로 사용"
+            "MLP spark_conf 가중치 적용: YOLO spark 표시는 유지하고 "
+            f"경보 MLP 입력에는 {module.MLP_SPARK_WEIGHT:.2f}배로 사용"
         )
     return module, detector
 
