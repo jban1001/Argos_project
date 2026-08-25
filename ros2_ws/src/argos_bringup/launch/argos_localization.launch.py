@@ -41,13 +41,19 @@ def generate_launch_description():
 
     params_file = LaunchConfiguration("params_file")
     map_yaml = LaunchConfiguration("map")
+    use_imu = LaunchConfiguration("use_imu")
+    use_ekf = LaunchConfiguration("use_ekf")
 
     bringup = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(
                 bringup_share, "launch", "argos_bringup.launch.py"
             )
-        )
+        ),
+        launch_arguments={
+            "use_imu": use_imu,
+            "use_ekf": use_ekf,
+        }.items(),
     )
 
     map_server = Node(
@@ -84,6 +90,16 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
+        DeclareLaunchArgument(
+            "use_imu",
+            default_value="true",
+            description="MPU6050 IMU 사용 여부",
+        ),
+        DeclareLaunchArgument(
+            "use_ekf",
+            default_value="true",
+            description="wheel + gyro EKF 융합 사용 여부",
+        ),
         DeclareLaunchArgument(
             "params_file",
             default_value=os.path.join(ARGOS_CONFIG, "amcl.yaml"),

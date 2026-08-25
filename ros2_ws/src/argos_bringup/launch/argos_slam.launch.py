@@ -42,13 +42,19 @@ def generate_launch_description():
     slam_share = get_package_share_directory("slam_toolbox")
 
     slam_params = LaunchConfiguration("slam_params_file")
+    use_imu = LaunchConfiguration("use_imu")
+    use_ekf = LaunchConfiguration("use_ekf")
 
     bringup = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(
                 bringup_share, "launch", "argos_bringup.launch.py"
             )
-        )
+        ),
+        launch_arguments={
+            "use_imu": use_imu,
+            "use_ekf": use_ekf,
+        }.items(),
     )
 
     slam = IncludeLaunchDescription(
@@ -66,6 +72,16 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
+        DeclareLaunchArgument(
+            "use_imu",
+            default_value="true",
+            description="MPU6050 IMU 사용 여부",
+        ),
+        DeclareLaunchArgument(
+            "use_ekf",
+            default_value="true",
+            description="wheel + gyro EKF 융합 사용 여부",
+        ),
         DeclareLaunchArgument(
             "slam_params_file",
             default_value=os.path.join(

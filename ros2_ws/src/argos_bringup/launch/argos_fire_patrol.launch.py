@@ -26,6 +26,8 @@ def generate_launch_description():
     fire_params = LaunchConfiguration("fire_params_file")
     use_rviz = LaunchConfiguration("use_rviz")
     rviz_config = LaunchConfiguration("rviz_config")
+    use_imu = LaunchConfiguration("use_imu")
+    use_ekf = LaunchConfiguration("use_ekf")
 
     navigation = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -39,6 +41,8 @@ def generate_launch_description():
             "map": map_yaml,
             "nav2_params_file": nav2_params,
             "nav_cmd_vel_topic": "/cmd_vel_nav_auto",
+            "use_imu": use_imu,
+            "use_ekf": use_ekf,
         }.items(),
     )
 
@@ -68,6 +72,16 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
+        DeclareLaunchArgument(
+            "use_imu",
+            default_value="true",
+            description="MPU6050 IMU 사용 여부",
+        ),
+        DeclareLaunchArgument(
+            "use_ekf",
+            default_value="true",
+            description="wheel + gyro EKF 융합 사용 여부",
+        ),
         DeclareLaunchArgument(
             "map",
             default_value=os.path.join(

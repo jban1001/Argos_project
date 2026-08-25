@@ -256,14 +256,25 @@ Nav2
 ### TF 구조
 
 ```text
-map ──AMCL──> odom ──wheel_odometry_node──> base_link ──static TF──> laser_frame
+map
+└─ odom                 AMCL (고정맵) 또는 slam_toolbox (매핑)
+   └─ base_link         EKF (융합 모드) 또는 wheel_odometry_node (fallback)
+      ├─ laser_frame    static TF (실측)
+      └─ imu_link       static TF (MPU6050)
 ```
 
 TF 발행 주체를 중복 실행하면 안 된다.
 
-- `map -> odom`: AMCL만 발행
-- `odom -> base_link`: wheel odometry만 발행
-- `base_link -> laser_frame`: `argos_bringup.launch.py`의 static transform publisher가 발행
+- `map -> odom`: AMCL 또는 slam_toolbox 중 **하나만** 발행
+- `odom -> base_link`: **정확히 하나만** 발행한다
+  - 융합 모드(`use_ekf:=true`, 기본): `ekf_filter_node`가 발행하고
+    `wheel_odometry_node`는 `publish_tf:=false`로 발행하지 않는다
+  - fallback 모드(`use_ekf:=false`): `wheel_odometry_node`가 발행한다
+- `base_link -> laser_frame`: `argos_bringup.launch.py`의 static transform publisher
+- `base_link -> imu_link`: 같은 launch의 static transform publisher (`use_imu:=true`)
+- `laser_frame -> imu_link` 직접 TF는 **만들지 않는다**. 둘의 상대 변환은
+  TF tree가 `base_link`를 거쳐 간접 계산한다. LiDAR-IMU extrinsic
+  calibration은 하지 않는다.
 - SLAM을 동시에 실행하면 `map -> odom`이 충돌하여 localization과 Nav2가 깨질 수 있음
 
 ## 각 구성요소의 책임
@@ -357,7 +368,10 @@ RPP는 고정된 운동학적 경로를 일관되게 추종하는 데 유리하�
 | `/map` | 고정 OccupancyGrid | map_server |
 | `/scan_raw` | 원본 LaserScan | YDLIDAR driver |
 | `/scan` | 1440-bin 정규화 LaserScan | scan_normalizer |
-| `/odom` | wheel odometry | wheel_odometry_node |
+| `/odom` | 최종 odometry | EKF (융합) / wheel_odometry_node (fallback) |
+| `/wheel/odom_raw` | 바퀴 엔코더 원시 odometry (융합 모드에서만) | wheel_odometry_node |
+| `/imu/data_raw` | MPU6050 IMU 100 Hz | mpu6050_node |
+| `/diagnostics` | IMU/EKF 상태 | mpu6050_node, ekf_filter_node |
 | `/plan` | 전역 경로 | planner_server |
 | `/cmd_vel_nav` | Nav2 원시 속도 명령 | controller/behavior server |
 | `/cmd_vel` | smoothing 후 모터 명령 | velocity_smoother |
@@ -576,6 +590,365 @@ journalctl --user -fu argos-navigation.service
 
 로봇이 갑자기 멈추면 무조건 controller 문제로 단정하지 않는다. BT cancel, lifecycle Pause, progress checker, TF 오류, collision check, velocity smoother, base-driver watchdog을 각각 구분해야 한다.
 
+## IMU (MPU6050) 융합
+
+### 하드웨어 연결
+
+| 항목 | 값 |
+|---|---|
+| 버스 | `/dev/i2c-1` (Jetson 40핀 헤더 **27번 SDA / 28번 SCL**) |
+| 주소 | `0x68` (AD0 = GND) |
+| `WHO_AM_I` | **`0x72`** |
+| 전원 | 3.3V |
+
+`WHO_AM_I`가 `0x72`이므로 **정품 InvenSense MPU-6050이 아니다.** 정품은 `0x68`을
+반환한다. `0x72`는 GY-521 보드에 흔히 올라가는 **MPU-6500 계열 호환 다이**다.
+
+온도 레지스터가 이를 확증한다. raw = 2099일 때
+
+```text
+MPU6050 식  2099/340    + 36.53 = 42.7 C   실온과 안 맞음
+MPU6500 식  2099/333.87 + 21    = 27.3 C   MLX90640 실측 27 C 와 일치
+```
+
+자이로/가속도 레지스터 맵과 감도(FS_SEL=0 → 131 LSB/(deg/s),
+AFS_SEL=0 → 16384 LSB/g)는 두 계열이 같으므로 스케일링은 분기하지 않는다.
+다만 드라이버에서 **`WHO_AM_I == 0x68` 검사를 하면 안 된다.** 정상 장치를
+거부하게 된다. `0x00` / `0xFF`(버스 죽음)만 걸러낸다.
+
+`python3-smbus2`는 설치하지 않았다. `/dev/i2c-1`을 직접 열고
+`ioctl(I2C_RDWR)`로 접근한다. `I2C_RDWR`을 쓰는 이유는 repeated-start
+때문이다. `i2c-1`은 온보드 전원 모니터(INA3221 `0x40`, `0x25`)와 버스를
+공유하므로, write와 read를 따로 하면 그 사이에 커널 드라이버가 끼어들어
+엉뚱한 레지스터를 읽을 수 있다.
+
+### 장착 축과 base_link -> imu_link
+
+정지 상태 accel 평균(7초, 590 표본)이 장착 자세를 알려준다.
+
+```text
+accel x = -0.7311 m/s^2
+accel y = +0.0963 m/s^2
+accel z = +10.2347 m/s^2     <- 양수. 칩 윗면이 하늘을 향한다.
+|a|     =  10.26  m/s^2      <- 중력 9.807 보다 4.6% 크다 (클론 스케일 오차)
+기울기  = asin(-0.7311/10.26) = -4.09 deg
+```
+
+**IMU의 +Z가 base_link의 +Z와 같은 방향(둘 다 위)이다.** 따라서 z축 둘레의
+회전 성분은 yaw를 얼마로 두든 그대로 보존된다. 보드가 앞/뒤/좌/우 어디를
+보든 `angular_velocity.z`는 같다. 초기 융합에서 yaw 값이 정확하지 않아도
+안전한 이유다.
+
+설정 파일은 `config/imu_mount.yaml`이다. 현재 값은 전부 0이며, 위치(x/y/z)는
+아직 자로 실측하지 않았다. **초기 EKF는 각속도만 쓰므로 위치 오차가 결과를
+바꾸지 않는다.** 나중에 accel을 융합하게 되면 그때 실측해야 한다.
+
+### 축 부호 검증 결과
+
+```bash
+python3 ~/argos_project/scripts/imu_axis_check.py
+```
+
+로봇을 손으로 돌려 측정한 결과(2026-08-26):
+
+| 판정 항목 | 기준 | 실측 | 결과 |
+|---|---|---|---|
+| CCW(왼쪽) 회전 | `gz > 0` | **+37.27 deg/s** | 통과 |
+| CW(오른쪽) 회전 | `gz < 0` | **-29.75 deg/s** | 통과 |
+| 360도 적분 | 약 +360도 | **+355.4도** | 오차 -1.3% |
+
+REP-103 규약과 부호가 일치한다. **코드에서 `-1`을 곱하는 보정이 필요 없다.**
+
+만약 나중에 부호가 반대로 나오면, 값에 `-1`을 곱하지 말고
+`config/imu_mount.yaml`의 `yaw`를 180도 돌려라. TF 회전으로 표현할 수 있는
+것을 코드에서 부호로 때우면 나중에 accel을 융합할 때 반드시 어긋난다.
+
+### gyro bias calibration
+
+`mpu6050_node`는 기동할 때 `calibration_seconds`(기본 7초) 동안 gyro bias를
+측정한다. **이 동안 로봇이 완전히 정지해 있어야 한다.**
+
+2026-08-26 실측(7초, 590 표본, I2C 실패 0회):
+
+| 축 | 평균 (rad/s) | 평균 (deg/s) | 표준편차 | 최대편차 |
+|---|---|---|---|---|
+| X | -0.031707 | -1.8167 | 0.004512 | 0.008928 |
+| Y | +0.004557 | +0.2611 | 0.002442 | 0.006235 |
+| **Z** | **-0.007303** | **-0.4184** | **0.001225** | 0.003489 |
+
+측정한 z축 분산(`1.5e-06 (rad/s)^2`)은 IMU 메시지의
+`angular_velocity_covariance`로 자동 승격된다. 실측이 파라미터 추정치보다 낫다.
+
+bias를 빼지 않으면 z축이 **분당 25도**씩 돈다. 반드시 빼야 한다.
+고정값을 쓰고 싶으면 `config/mpu6050.yaml`의 `gyro_bias_z`를 설정한다.
+
+### MPU6050의 장기 yaw drift 한계
+
+**MPU6050에는 magnetometer가 없다. 절대 yaw 기준이 없으므로 자체 적분한
+yaw는 반드시 드리프트한다.** 이것은 고칠 수 없는 원리적 한계다.
+
+드라이버는 이를 명시하기 위해 orientation을 아예 제공하지 않는다.
+
+```text
+orientation_covariance[0] = -1.0     (REP-145: "제공하지 않음")
+```
+
+bias 보정 후 실측 drift(정지 45초):
+
+```text
+yaw drift = -0.49 deg / 45초 = -0.66 deg/분
+```
+
+원시 bias가 -25 deg/분이었으므로 약 38배 개선됐지만 **0이 되지는 않는다.**
+남은 것은 bias 불안정성(온도 드리프트 등)이다.
+
+주의할 점이 하나 더 있다. **정지 상태에서는 wheel-only가 EKF보다 낫다.**
+바퀴가 안 돌면 wheel odometry의 drift는 정확히 0인데, gyro는 계속 흘러간다.
+
+```text
+정지 45초 yaw drift    EKF        -0.49 deg
+                       wheel-only  0.00 deg
+```
+
+반대로 **회전 중에는 gyro가 압도적으로 낫다.** skid-steer의 제자리 회전
+슬립이 wheel odometry yaw를 크게 틀어놓기 때문이고, 그것이 이 융합의 목적이다.
+
+장기적으로는 `map -> odom`을 내는 AMCL 또는 slam_toolbox가 절대 yaw를
+보정하므로 이 드리프트는 누적되지 않는다. 하지만 **localization 없이
+odometry만 쓰는 구간이 길어지면 반드시 문제가 된다.**
+
+### wheel-only와 EKF 전환
+
+기본값은 융합 모드다.
+
+```bash
+# 융합 모드 (기본) - wheel encoder + gyro z 를 EKF 로 융합
+ros2 launch argos_bringup argos_slam.launch.py
+```
+
+```bash
+# fallback 모드 - 기존과 완전히 동일한 wheel-only 동작
+ros2 launch argos_bringup argos_slam.launch.py use_ekf:=false
+```
+
+```bash
+# IMU 노드 자체를 끈다 (EKF 도 자동으로 꺼진다)
+ros2 launch argos_bringup argos_slam.launch.py use_imu:=false
+```
+
+`use_imu` / `use_ekf` argument는 다음 4개 launch 파일 모두에서 쓸 수 있다.
+
+- `argos_bringup.launch.py`
+- `argos_slam.launch.py`
+- `argos_navigation.launch.py`
+- `argos_fire_patrol.launch.py`
+
+두 모드의 데이터 흐름은 이렇다.
+
+```text
+융합 모드 (use_imu:=true use_ekf:=true, 기본)
+
+    wheel encoder ─> /wheel/odom_raw ─┐
+                                      ├─> EKF ─> /odom + odom->base_link
+    MPU6050 ──────> /imu/data_raw ────┘
+
+fallback 모드 (use_ekf:=false)
+
+    wheel encoder ─> /odom + odom->base_link
+```
+
+**`use_ekf:=true`인데 `use_imu:=false`면 어떻게 되는가?**
+EKF에 yaw rate를 줄 센서가 없어진다. `odom0`은 `vx`만 융합하므로 yaw가
+영원히 갱신되지 않아 odometry가 완전히 망가진다. 그래서 두 argument를
+AND로 묶어, **IMU가 없으면 EKF도 자동으로 끄고 fallback으로 내려간다.**
+조용히 깨지는 것보다 낫다.
+
+### EKF가 무엇을 융합하고 무엇을 융합하지 않는가
+
+설정 파일은 `config/ekf_imu.yaml`이다.
+
+| 입력 | 융합하는 것 | 융합하지 않는 것 |
+|---|---|---|
+| `/wheel/odom_raw` | `linear_velocity.x` | pose(x/y/yaw), `vy`, `vyaw` |
+| `/imu/data_raw` | `angular_velocity.z` | orientation, linear acceleration |
+
+각각의 이유는 이렇다.
+
+- **wheel pose를 안 쓰는 이유**: 이미 적분된 값이라 슬립 오차가 누적돼 있다.
+  융합하면 EKF가 wheel의 누적 yaw 오차를 그대로 물려받아 gyro를 넣은 의미가
+  사라진다.
+- **wheel `vyaw`를 안 쓰는 이유**: 이번 작업의 핵심이다. wheel의 yaw rate는
+  제자리 회전에서 슬립으로 가장 크게 틀어지는 양이고, 정확히 그것을 gyro로
+  대체하려는 것이다. 둘을 같이 높은 신뢰도로 넣으면 EKF가 평균을 내면서
+  슬립 오차가 절반만 줄어든다.
+- **wheel `vy`를 안 쓰는 이유**: 비홀로노믹 제약으로 `vy = 0`을 넣고 싶을 수
+  있다. 하지만 skid-steer는 회전할 때 좌우 바퀴가 실제로 옆으로 미끄러진다.
+  차체 중심에서 본 순간 속도에는 0이 아닌 y 성분이 존재한다. 여기에 "vy는
+  정확히 0"이라는 강한 제약을 걸면 필터가 회전 중에 그 모순을 x/yaw로
+  떠넘겨 오히려 왜곡된다. `two_d_mode: true`가 z/roll/pitch를 이미 묶어준다.
+- **IMU orientation을 안 쓰는 이유**: magnetometer가 없어 절대 yaw 기준이 없다.
+- **IMU linear acceleration을 안 쓰는 이유**: 이 클론 다이는 `|a|`가
+  중력보다 4.6% 크다. 스케일 오차가 있는 가속도를 두 번 적분하면 위치가
+  급격히 발산한다. 바퀴 엔코더가 이미 훨씬 좋은 선속도를 준다.
+
+`wheel_odometry_node`의 covariance도 이번에 채웠다. 기존에는 전부 0이었는데,
+혼자 쓸 때는 아무도 안 보지만 EKF에 넣으면 robot_localization이
+**"분산 0 = 무한 신뢰"로 해석해서 필터가 발산하거나 IMU를 완전히 무시한다.**
+
+### 진단 명령
+
+```bash
+source ~/argos_project/scripts/argos_env.sh
+```
+
+IMU 발행 상태
+
+```bash
+ros2 topic hz /imu/data_raw
+```
+
+```bash
+ros2 topic echo /imu/data_raw --once
+```
+
+IMU / EKF 진단 (I2C 오류 횟수, bias, jitter, 필터 상태)
+
+```bash
+ros2 topic echo /diagnostics
+```
+
+발행자가 정확히 하나인지 확인 (가장 중요한 점검)
+
+```bash
+ros2 topic info /odom -v
+```
+
+```bash
+ros2 run tf2_ros tf2_monitor odom base_link
+```
+
+TF 트리 연결 확인
+
+```bash
+ros2 run tf2_ros tf2_echo map laser_frame
+```
+
+축 부호와 적분 오차 검증
+
+```bash
+python3 ~/argos_project/scripts/imu_axis_check.py --with-odom
+```
+
+정지 상태 drift 측정 (wheel-only와 EKF 비교용)
+
+```bash
+python3 ~/argos_project/scripts/odom_drift_check.py --seconds 45
+```
+
+LiDAR 주기 / timestamp 진단 (IMU와 별개 문제)
+
+```bash
+python3 ~/argos_project/scripts/scan_diagnose.py --seconds 60
+```
+
+I2C 장치 확인 (버스 전체를 훑지 말고 주소를 지정할 것)
+
+```bash
+i2cget -y 1 0x68 0x75 b
+```
+
+### 매핑 명령
+
+기존 지도는 절대 덮어쓰지 않는다. 새 이름을 쓴다.
+
+```bash
+ros2 launch argos_bringup argos_slam.launch.py
+```
+
+주행은 천천히 한다.
+
+- 속도 약 `0.05 ~ 0.08 m/s`
+- 급가속 금지, 빠른 제자리 회전 금지
+- 같은 벽을 최소 두 번 겹쳐 주행
+- 시작 위치로 돌아와 loop closure 생성
+- 벽과 너무 가까이 붙지 말 것
+- 긴 복도에서는 특징이 있는 구역을 함께 통과할 것
+
+저장한다.
+
+```bash
+ros2 run nav2_map_server map_saver_cli -f ~/argos_project/maps/argos_lab_imu_v1
+```
+
+wheel-only 지도와 비교하려면 같은 경로를 `use_ekf:=false`로 한 번 더 돈다.
+
+```bash
+ros2 launch argos_bringup argos_slam.launch.py use_ekf:=false
+```
+
+### LiDAR 문제는 IMU로 해결되지 않는다
+
+**IMU를 넣어도 LiDAR 자체 문제는 그대로 남는다.** 둘은 별개다.
+
+`scan_diagnose.py` 실측(2026-08-26, 60초):
+
+| 항목 | `/scan_raw` | `/scan` |
+|---|---|---|
+| 주기 | 11.678 Hz | 11.678 Hz |
+| 주기 표준편차 | 10.1% | 13.5% |
+| 끊김(2배 초과) | 1회 (0.275초) | 1회 (0.350초) |
+| timestamp 역행 | **0회** | **0회** |
+| `scan_time` vs 실제 | 0.08553 vs 0.0856 (일치) | 일치 |
+| 점 개수 | **427** | 1440 |
+| 유효 측정점 | 91.5% | **27.2%** |
+
+**LiDAR timestamp 자체는 건강하다.** 역행이 없고, `scan_time`과
+`time_increment`가 실제 주기와 일치하며, 60초간 stamp 경과와 수신 경과의
+차이가 +0.001초다.
+
+**그런데 `scan_normalizer`의 `num_bins: 1440`이 현재 조건과 안 맞는다.**
+
+`/scan_raw`가 스캔당 427점인데 1440 bin에 재샘플링한다.
+`427/1440 = 최대 29.7%`만 채워지고, 실측 유효율 27.2%가 이와 일치한다.
+**1440개 중 약 1050개가 빈 bin이다.**
+
+원인은 회전 속도다. 센서의 샘플링 레이트는 약 5 kHz로 고정이고 회전 속도만 변한다.
+
+```text
+현재       427점 x 11.678 Hz = 4,987 점/초
+코드 주석 1351점 x  3.67 Hz = 4,958 점/초    <- 같다
+```
+
+`num_bins: 1440`은 3.67 Hz(1351점) 기준으로 튜닝된 값인데, 지금은 11.678 Hz로
+돌아 427점만 들어온다. 실제 각도 분해능은 `360/427 = 0.84도`인데 0.25도
+격자에 넣으므로, 각 점이 어느 bin에 떨어지는지가 회전 위상에 따라 스캔마다
+달라진다. **벽이 뭉개지고 두꺼워지는 원인이며 IMU와 무관하다.**
+
+이 값은 아직 바꾸지 않았다. 지도 품질에 직접 영향을 주므로 실제 매핑 비교
+후에 결정해야 한다.
+
+### stamp_at_midpoint 검증
+
+`scan_normalizer`의 `stamp_at_midpoint: true`가 옳은지 확인했다.
+
+- LaserScan 규약상 `header.stamp`는 **첫 번째 광선**의 시각이다.
+  YDLidar SDK도 `outscan.stamp = global_nodes[0].stamp`로 그렇게 넣는다.
+- 그런데 `slam_toolbox`(Karto)와 Nav2 costmap은 **광선별 motion
+  compensation을 하지 않는다.** 스캔 전체를 `header.stamp` 한 시각의
+  자세로 정합한다.
+- 한 바퀴가 0.0856초이므로, 첫 광선 시각을 쓰면 평균 `scan_time/2 = 0.043초`
+  뒤처진 자세를 쓰게 된다. 0.6 rad/s로 회전 중이면 **약 1.5도의 계통 오차**이고,
+  회전 방향이 바뀔 때마다 반대로 틀어져 벽이 이중으로 찍힌다.
+
+**결론: 이 스택에서는 `stamp_at_midpoint: true`가 맞다.** 규약을 엄격히
+따르는 것보다 실제 소비자(slam_toolbox, Nav2)의 동작에 맞추는 편이 낫다.
+
+**단, 주의할 것이 있다.** 이 설정은 LaserScan 규약을 위반하므로, 나중에
+광선별 dewarping을 하는 소비자(예: `laser_geometry`의 고정밀 모드,
+일부 ICP 구현)를 붙이면 그쪽이 `time_increment`로 보정할 때
+**반대 방향으로 반 스캔만큼 틀어진다.** 그런 노드를 추가할 때는
+이 파라미터를 다시 검토해야 한다.
+
 ## 현재 알려진 문제점
 
 ### 1. LiDAR 회전수 불안정
@@ -620,7 +993,9 @@ YDLIDAR가 약 3.67 Hz와 11.76 Hz 사이에서 변동한 기록이 있다. 복�
 
 ### 5. Wheel odometry와 skid slip
 
-- IMU가 없다.
+- ~~IMU가 없다.~~ 2026-08-26 MPU6050(MPU-6500 호환 클론)을 추가하고
+  `robot_localization` EKF로 gyro z를 융합했다. 위 "IMU (MPU6050) 융합" 절 참고.
+  단 magnetometer가 없어 장기 yaw drift(약 -0.66 deg/분)는 남는다.
 - 모터 제어가 closed-loop wheel velocity PID가 아니라 실측 선형 PWM 모델 기반 open-loop이다.
 - skid-steer 특성상 제자리 회전과 바닥 마찰 변화에서 슬립이 커질 수 있다.
 - AMCL이 장기 drift를 보정하지만 순간적인 pose 보정은 RPP에서 경로가 움직이는 것처럼 보이게 할 수 있다.
@@ -719,7 +1094,7 @@ RPP를 고정한 상태로 planner만 한 변수씩 조정한다.
 - 직진 및 회전 calibration 재현성 확인
 - 여러 바닥에서 effective track width 검증
 - 좌우 wheel velocity closed-loop PID 검토
-- 가능하면 IMU 융합 검토
+- ~~가능하면 IMU 융합 검토~~ 2026-08-26 완료 (MPU6050 + robot_localization EKF)
 - AMCL 보정 전후 odometry drift 정량화
 
 ### P2 — 안전 계층 추가

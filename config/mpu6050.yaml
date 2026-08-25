@@ -1,0 +1,58 @@
+# ARGOS MPU6050 드라이버 파라미터
+#
+# 하드웨어 (2026-08-26 실측)
+#   /dev/i2c-1 (Jetson 40핀 헤더 27=SDA / 28=SCL), 주소 0x68
+#   WHO_AM_I = 0x72  -> MPU-6500 계열 호환 클론. 정품 6050(0x68)이 아니다.
+#   자이로/가속도 레지스터와 감도는 같으므로 스케일은 분기하지 않는다.
+
+mpu6050_node:
+  ros__parameters:
+
+    i2c_bus: 1
+    i2c_address: 0x68
+
+    frame_id: imu_link
+    topic: /imu/data_raw
+
+    # 100 Hz. SMPLRT_DIV = 1000/100 - 1 = 9 로 정확히 떨어진다.
+    # 실측 100.000 Hz, std dev 0.22 ms.
+    publish_rate: 100.0
+
+    # 0 = +-250 dps (131 LSB/(deg/s))
+    # 로봇 최대 제자리 회전이 0.637 rad/s = 36.5 deg/s 이므로
+    # 가장 민감한 범위를 써서 분해능을 확보한다.
+    gyro_range: 0
+
+    # 0 = +-2 g (16384 LSB/g)
+    accel_range: 0
+
+    # DLPF_CFG=3 -> 대역폭 42 Hz, 그룹지연 4.8 ms.
+    # 100 Hz 샘플링의 Nyquist 50 Hz 아래라 에일리어싱 여유가 있다.
+    # 4.8 ms 지연은 상수이므로 EKF 가 흡수한다.
+    dlpf_config: 3
+
+    # 기동 시 gyro bias 측정 [s]. 이 동안 로봇이 완전히 정지해 있어야 한다.
+    #
+    # 2026-08-26 실측 (7초, 590 표본, I2C 실패 0회)
+    #   gyro x  mean = -0.031707 rad/s (-1.8167 deg/s)  std = 0.004512
+    #   gyro y  mean = +0.004557 rad/s (+0.2611 deg/s)  std = 0.002442
+    #   gyro z  mean = -0.007303 rad/s (-0.4184 deg/s)  std = 0.001225
+    #
+    # bias 를 안 빼면 z 축이 분당 25 도씩 돈다. 반드시 빼야 한다.
+    calibration_seconds: 7.0
+
+    apply_gyro_bias: true
+
+    # 매 기동마다 다시 재므로 보통 비워 둔다.
+    # 고정하고 싶으면 위 실측값을 넣는다.
+    # gyro_bias_z: -0.007303
+
+    # 실측 분산으로 자동 갱신된다 (calibration 이 돌면).
+    # 아래 값은 calibration_seconds: 0 일 때만 쓰인다.
+    angular_velocity_variance: 1.5e-06
+
+    # linear acceleration 은 EKF 에 넣지 않는다.
+    # 이 클론은 |a| = 10.26 m/s^2 로 중력보다 4.6% 크다.
+    linear_acceleration_variance: 4.0e-02
+
+    error_threshold: 10

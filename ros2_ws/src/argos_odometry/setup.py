@@ -31,6 +31,7 @@ setup(
         'calibrate_odometry = argos_odometry.calibrate_odometry:main',
         'argos_base_driver = argos_odometry.argos_base_driver:main',
         'scan_normalizer = argos_odometry.scan_normalizer:main',
+        'mpu6050_node = argos_odometry.mpu6050_node:main',
     ],
   },
 )

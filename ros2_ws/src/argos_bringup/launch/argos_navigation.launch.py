@@ -55,6 +55,8 @@ def generate_launch_description():
     params_file = LaunchConfiguration("nav2_params_file")
     nav_cmd_vel_topic = LaunchConfiguration("nav_cmd_vel_topic")
     map_yaml = LaunchConfiguration("map")
+    use_imu = LaunchConfiguration("use_imu")
+    use_ekf = LaunchConfiguration("use_ekf")
 
     common = [("/tf", "tf"), ("/tf_static", "tf_static")]
 
@@ -69,7 +71,11 @@ def generate_launch_description():
                 bringup_share, "launch", "argos_localization.launch.py"
             )
         ),
-        launch_arguments={"map": map_yaml}.items(),
+        launch_arguments={
+            "map": map_yaml,
+            "use_imu": use_imu,
+            "use_ekf": use_ekf,
+        }.items(),
     )
 
     def nav_node(pkg, exe, name, remappings):
@@ -120,6 +126,16 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
+        DeclareLaunchArgument(
+            "use_imu",
+            default_value="true",
+            description="MPU6050 IMU 사용 여부",
+        ),
+        DeclareLaunchArgument(
+            "use_ekf",
+            default_value="true",
+            description="wheel + gyro EKF 융합 사용 여부",
+        ),
         DeclareLaunchArgument(
             "nav2_params_file",
             default_value=os.path.join(
