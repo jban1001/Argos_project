@@ -123,7 +123,27 @@ Nav2 /cmd_vel_nav_auto ─┐
                                        argos_base_driver
 ```
 
-`~/YOLO`의 엔진/모델은 읽기만 하며 이 프로젝트에서 생성·수정·삭제하지 않는다. 현재 MLP가 충분히 학습되지 않았다면 오탐이 생길 수 있으므로, 시연 전에는 사람이 비상 정지할 수 있는 거리에서 낮은 속도로 시험한다.
+`~/YOLO` 원본은 수정하지 않는다. 사용자가 만든 `~/YOLO/YOLO_BACK`의 모델과 `telegram_alert.py`만 사용한다.
+
+텔레그램 기본 경보 조건은 `new_main.py`와 동일하다.
+
+- Arduino 온도/가스 센서 연결 정상
+- MLP 위험확률 70% 이상
+- 위 조건이 1초 연속 유지
+- 메시지와 감지 사진 전송
+- 같은 위험이 계속되면 60초 간격으로 재전송
+- 메시지에 YOLO 클래스 confidence, 온도, 가스, 로봇 상태와 map 위치 포함
+
+설정은 `config/fire_nav_patrol.yaml`의 `telegram_*` 항목에서 조정한다. 기본 `telegram_gate: mlp`가 최종 운용 설정이다. 현재 MLP의 현장 오탐을 확인하는 시연 단계에서만 다음처럼 `yolo`로 바꿀 수 있다.
+
+```yaml
+telegram_gate: yolo
+telegram_yolo_conf: 0.20
+```
+
+접근 동작 자체는 MLP 단독 오탐으로 로봇이 움직이지 않도록 YOLO의 실제 `fire` bbox와 방위각을 사용한다. 텔레그램 자격정보는 환경변수, `YOLO_BACK/telegram_config.json`, 기존 백업 설정 순으로 읽으며 토큰을 로그에 출력하지 않는다.
+
+현재 MLP가 충분히 학습되지 않았다면 오탐이 생길 수 있으므로, 시연 전에는 사람이 비상 정지할 수 있는 거리에서 낮은 속도로 시험한다.
 
 ### 5. 수동주행(데이터 수집용)
 

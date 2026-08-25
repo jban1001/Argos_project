@@ -7,7 +7,8 @@
 /cmd_vel_nav 으로 전달한다. velocity_smoother 와 base driver watchdog 은
 기존 경로 그대로 유지된다.
 
-YOLO 모델과 기존 fire_seeker.py 는 읽기만 한다.
+YOLO 원본은 수정하지 않는다. 모델과 텔레그램 모듈은
+~/YOLO/YOLO_BACK 안의 복사본을 사용한다.
 """
 
 from __future__ import annotations
@@ -182,6 +183,26 @@ def clone_twist(source: Twist) -> Twist:
     return target
 
 
+def danger_active(
+    detection,
+    gate: str,
+    mlp_threshold: float,
+    yolo_threshold: float,
+) -> bool:
+    """new_main 기준 MLP gate 또는 시연용 YOLO gate를 판정한다."""
+    if gate == "mlp":
+        return (
+            bool(detection.get("sensor_ok"))
+            and float(detection.get("prob", 0.0)) >= mlp_threshold
+        )
+    if gate == "yolo":
+        return (
+            float(detection.get("confs", {}).get("fire", 0.0))
+            >= yolo_threshold
+        )
+    raise ValueError("gate 는 'mlp' 또는 'yolo' 여야 합니다")
+
+
 class FireNavPatrol(Node):
 
     def __init__(self) -> None:
@@ -285,12 +306,23 @@ class FireNavPatrol(Node):
             "detector_script": str(
                 Path.home() / "argos_project" / "scripts" / "fire_seeker.py"
             ),
+            "yolo_backup_dir": str(Path.home() / "YOLO" / "YOLO_BACK"),
             "fire_conf": 0.20,
             "confirm_seconds": 1.0,
             "bearing_hold_seconds": 1.2,
             "lost_seconds": 2.0,
             "hold_release_seconds": 5.0,
             "show_camera": True,
+            "telegram_enabled": True,
+            "telegram_alert_script": str(
+                Path.home() / "YOLO" / "YOLO_BACK" / "telegram_alert.py"
+            ),
+            "telegram_gate": "mlp",
+            "telegram_fire_probability": 0.70,
+            "telegram_yolo_conf": 0.20,
+            "telegram_confirm_seconds": 1.0,
+            "telegram_cooldown_seconds": 60.0,
+            "telegram_send_photo": True,
             "require_initial_pose": True,
             "patrol_min_radius": 0.8,
             "patrol_max_radius": 2.5,
@@ -329,12 +361,29 @@ class FireNavPatrol(Node):
         value = lambda name: self.get_parameter(name).value
 
         self.detector_script = str(value("detector_script"))
+        self.yolo_backup_dir = str(value("yolo_backup_dir"))
         self.fire_conf = float(value("fire_conf"))
         self.confirm_seconds = float(value("confirm_seconds"))
         self.bearing_hold_seconds = float(value("bearing_hold_seconds"))
         self.lost_seconds = float(value("lost_seconds"))
         self.hold_release_seconds = float(value("hold_release_seconds"))
         self.show_camera = bool(value("show_camera"))
+        self.telegram_enabled = bool(value("telegram_enabled"))
+        self.telegram_alert_script = str(value("telegram_alert_script"))
+        self.telegram_gate = str(value("telegram_gate")).strip().lower()
+        if self.telegram_gate not in {"mlp", "yolo"}:
+            raise ValueError("telegram_gate 는 'mlp' 또는 'yolo' 여야 합니다")
+        self.telegram_fire_probability = float(
+            value("telegram_fire_probability")
+        )
+        self.telegram_yolo_conf = float(value("telegram_yolo_conf"))
+        self.telegram_confirm_seconds = float(
+            value("telegram_confirm_seconds")
+        )
+        self.telegram_cooldown_seconds = float(
+            value("telegram_cooldown_seconds")
+        )
+        self.telegram_send_photo = bool(value("telegram_send_photo"))
         self.require_initial_pose = bool(value("require_initial_pose"))
 
         self.patrol_min_radius = float(value("patrol_min_radius"))
@@ -372,6 +421,13 @@ class FireNavPatrol(Node):
         self.pose_topic = str(value("pose_topic"))
         self.initial_pose_topic = str(value("initial_pose_topic"))
         self.scan_topic = str(value("scan_topic"))
+
+    def map_position(self) -> Optional[tuple[float, float]]:
+        with self._data_lock:
+            if self._pose is None:
+                return None
+            point = self._pose.pose.pose.position
+            return float(point.x), float(point.y)
 
     # ---------------- 입력 ----------------
 
@@ -745,14 +801,45 @@ def load_detector(node: FireNavPatrol):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
-    # MLP 는 현재 무화염에서도 0.95 이상을 내므로 실측 완료된 YOLO gate 를
-    # 사용한다. 모델 파일은 읽기만 하며 ~/YOLO 를 수정하지 않는다.
-    module.REQUIRE_SENSOR_GATE = False
+    # 원본 ~/YOLO 파일이 아니라 사용자가 지정한 YOLO_BACK 복사본만 읽는다.
+    backup_dir = Path(node.yolo_backup_dir).expanduser()
+    module.MODEL_PATH = str(backup_dir / "best.engine")
+    module.MLP_MODEL_PATH = str(backup_dir / "fire_mlp.pkl")
+
+    # 접근은 아래 주행 루프에서 YOLO confidence로 별도 판단한다.
+    # 텔레그램이 MLP gate이면 센서값과 MLP 확률도 함께 계산한다.
+    module.REQUIRE_SENSOR_GATE = (
+        node.telegram_enabled and node.telegram_gate == "mlp"
+    )
     module.YOLO_ONLY_FIRE_CONF = node.fire_conf
     module.SHOW_WINDOW = False
 
     detector = module.FireDetector()
     return module, detector
+
+
+def load_telegram_alerter(node: FireNavPatrol):
+    script_path = Path(node.telegram_alert_script).expanduser()
+    if not script_path.is_file():
+        raise FileNotFoundError(f"텔레그램 모듈 없음: {script_path}")
+
+    spec = importlib.util.spec_from_file_location(
+        "argos_telegram_alert",
+        str(script_path),
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"텔레그램 모듈 로드 실패: {script_path}")
+
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    alerter = module.TelegramAlerter(
+        enabled=node.telegram_enabled,
+        cooldown_seconds=node.telegram_cooldown_seconds,
+        send_photo=node.telegram_send_photo,
+        save_dir=Path(node.yolo_backup_dir) / "fire_alerts",
+        logger=lambda message: node.get_logger().info(message),
+    )
+    return module, alerter
 
 
 def run() -> int:
@@ -766,6 +853,10 @@ def run() -> int:
 
     detector = None
     detector_module = None
+    alerter = None
+    alerter_module = None
+    sensor_stop_event = None
+    sensor_thread = None
     show = False
     shutting_down = False
 
@@ -779,6 +870,18 @@ def run() -> int:
     try:
         detector_module, detector = load_detector(node)
 
+        if node.telegram_enabled and node.telegram_gate == "mlp":
+            sensor_stop_event = threading.Event()
+            sensor_thread = threading.Thread(
+                target=detector_module.read_arduino,
+                args=(sensor_stop_event,),
+                daemon=True,
+            )
+            sensor_thread.start()
+
+        if node.telegram_enabled:
+            alerter_module, alerter = load_telegram_alerter(node)
+
         show = node.show_camera and bool(os.environ.get("DISPLAY"))
 
         node.get_logger().info(
@@ -788,6 +891,7 @@ def run() -> int:
 
         state = "NAV_PATROL"
         confirm_started = None
+        alert_started = None
         last_fire_seen = 0.0
         last_bearing = None
         last_bearing_at = 0.0
@@ -818,7 +922,12 @@ def run() -> int:
             else:
                 last_bearing = None
 
-            raw_fire = bool(detection.get("is_fire"))
+            # 로봇 접근은 반드시 화면에 실제 fire bbox가 있어야 한다.
+            # 미완성 MLP의 단독 오탐으로 로봇이 움직이지 않도록 분리한다.
+            raw_fire = (
+                float(detection.get("confs", {}).get("fire", 0.0))
+                >= node.fire_conf
+            )
 
             if raw_fire:
                 if confirm_started is None:
@@ -833,6 +942,59 @@ def run() -> int:
 
             clear_m = node.front_clearance()
             scan_ok = node.scan_fresh() and node.lookup_laser_tf()
+
+            alert_raw = danger_active(
+                detection,
+                node.telegram_gate,
+                node.telegram_fire_probability,
+                node.telegram_yolo_conf,
+            )
+
+            if node.telegram_gate == "mlp":
+                alert_threshold = node.telegram_fire_probability
+                alert_probability = float(detection.get("prob", 0.0))
+            else:
+                alert_threshold = node.telegram_yolo_conf
+                alert_probability = float(
+                    detection.get("confs", {}).get("fire", 0.0)
+                )
+
+            if alert_raw:
+                if alert_started is None:
+                    alert_started = now
+                alert_confirmed = (
+                    now - alert_started >= node.telegram_confirm_seconds
+                )
+            else:
+                alert_started = None
+                alert_confirmed = False
+
+            if (
+                alert_confirmed
+                and alerter is not None
+                and alerter.ready(now)
+            ):
+                alert_frame = detector_module.draw_hud(
+                    detection,
+                    state,
+                    clear_m,
+                    scan_ok,
+                )
+                message = alerter_module.build_message(
+                    detection,
+                    gate=node.telegram_gate,
+                    threshold=alert_threshold,
+                    robot_state=state,
+                    front_clearance=clear_m,
+                    pose=node.map_position(),
+                )
+                if alerter.enqueue(
+                    text=message,
+                    frame=alert_frame,
+                    probability=alert_probability,
+                ):
+                    # new_main.py와 같이 전송 후 연속 확인 시간을 다시 잰다.
+                    alert_started = None
 
             if state == "NAV_PATROL":
                 if confirmed and bearing is not None:
@@ -965,6 +1127,14 @@ def run() -> int:
 
         if detector is not None:
             detector.release()
+
+        if sensor_stop_event is not None:
+            sensor_stop_event.set()
+        if sensor_thread is not None:
+            sensor_thread.join(timeout=2.0)
+
+        if alerter is not None:
+            alerter.close()
 
         if show:
             cv2.destroyAllWindows()

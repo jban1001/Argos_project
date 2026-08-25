@@ -1,19 +1,31 @@
 # ARGOS Nav2 순찰 + 화재 접근
 #
-# ~/YOLO 의 모델은 읽기만 한다. 이 설정과 실행 노드는 YOLO 폴더를
-# 생성, 수정 또는 삭제하지 않는다.
+# ~/YOLO 원본은 수정하지 않는다. 모델과 텔레그램 모듈은 사용자가 만든
+# ~/YOLO/YOLO_BACK 복사본만 사용한다.
 
 fire_nav_patrol:
   ros__parameters:
 
     # 화재 인식
     detector_script: /home/odyssey/argos_project/scripts/fire_seeker.py
+    yolo_backup_dir: /home/odyssey/YOLO/YOLO_BACK
     fire_conf: 0.20
     confirm_seconds: 1.0
     bearing_hold_seconds: 1.2
     lost_seconds: 2.0
     hold_release_seconds: 5.0
     show_camera: true
+
+    # 텔레그램 위험 알림. 기본값은 new_main.py와 동일하게
+    # 센서 연결 + MLP 70% 이상 1초 유지, 재전송 간격 60초이다.
+    telegram_enabled: true
+    telegram_alert_script: /home/odyssey/YOLO/YOLO_BACK/telegram_alert.py
+    telegram_gate: mlp
+    telegram_fire_probability: 0.70
+    telegram_yolo_conf: 0.20
+    telegram_confirm_seconds: 1.0
+    telegram_cooldown_seconds: 60.0
+    telegram_send_photo: true
 
     # 사용자가 실외 맵에서 2D Pose Estimate 를 한 뒤에만 순찰한다.
     require_initial_pose: true

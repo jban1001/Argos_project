@@ -85,8 +85,26 @@ def test_unknown_start_is_rejected():
     assert target is None
 
 
+def test_danger_gates():
+    detection = {
+        "sensor_ok": True,
+        "prob": 0.71,
+        "confs": {"fire": 0.21},
+    }
+    assert module.danger_active(detection, "mlp", 0.70, 0.20)
+    assert module.danger_active(detection, "yolo", 0.70, 0.20)
+
+    detection["sensor_ok"] = False
+    assert not module.danger_active(detection, "mlp", 0.70, 0.20)
+    assert module.danger_active(detection, "yolo", 0.70, 0.20)
+
+    detection["confs"]["fire"] = 0.19
+    assert not module.danger_active(detection, "yolo", 0.70, 0.20)
+
+
 if __name__ == "__main__":
     test_sector_clearance()
     test_select_patrol_target_in_free_space()
     test_unknown_start_is_rejected()
+    test_danger_gates()
     print("fire_nav_patrol tests: OK")
