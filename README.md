@@ -924,8 +924,51 @@ ros2 launch argos_bringup argos_slam.launch.py use_ekf:=false
 격자에 넣으므로, 각 점이 어느 bin에 떨어지는지가 회전 위상에 따라 스캔마다
 달라진다. **벽이 뭉개지고 두꺼워지는 원인이며 IMU와 무관하다.**
 
-이 값은 아직 바꾸지 않았다. 지도 품질에 직접 영향을 주므로 실제 매핑 비교
-후에 결정해야 한다.
+**2026-08-26 수정: `num_bins`를 1440에서 450으로 낮췄다.**
+`argos_bringup.launch.py`의 `scan_bins` argument로 조절한다.
+
+낮춰야 했던 진짜 이유는 빈 bin 자체가 아니라 **CPU 부하**였다.
+
+```text
+예전  3.67 Hz x 1440 =  5,285 점/초
+전    11.678 Hz x 1440 = 16,816 점/초   <- 3.2 배
+후    11.678 Hz x  450 =  5,255 점/초   <- 예전 수준 복귀
+```
+
+Karto는 스캔 하나를 처리할 때 `LocalizedRangeScan::Update()`와
+`OccupancyGrid::AddScan()`에서 **전체 reading 수만큼** 순회한다. 즉 비용이
+유효 점 개수가 아니라 `num_bins`에 비례한다. 유효 점이 302개뿐인데 1440을
+돌고 있었으니 4.8배를 낭비한 셈이다.
+
+그 결과 slam_toolbox가 입력을 따라가지 못하고 스캔을 버렸다.
+
+```text
+[slam_toolbox]: Message Filter dropping message: frame 'laser_frame'
+                reason 'discarding message because the queue is full'
+```
+
+실측 효과 (같은 환경, 45초 관찰):
+
+| 항목 | 1440 | 450 |
+|---|---|---|
+| bin 충전율 | 25 % | **70 %** |
+| scan drop | 61 회 | **0 회** |
+| Karto 부하 | 16,816 점/초 | 5,255 점/초 |
+
+**빈 bin이 벽을 지운다는 가설은 틀렸다.** `Karto.h`의 `OccupancyGrid::AddScan`을
+직접 확인한 결과, `rangeReading <= minRange`인 값은 raytracing 전에 걸러진다.
+
+```cpp
+if (rangeReading <= minRange || rangeReading >= maxRange || std::isnan(rangeReading)) {
+    // ignore these readings
+    continue;
+}
+```
+
+`range_min`이 0.1이고 빈 bin이 0.0이므로 그냥 무시된다. 지도를 훼손하지 않는다.
+
+LiDAR 회전수가 다시 내려가면 `num_bins`를 실측해서 올려야 한다.
+`scripts/scan_diagnose.py`로 회전당 점 개수를 먼저 잰다.
 
 ### stamp_at_midpoint 검증
 

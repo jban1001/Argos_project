@@ -104,6 +104,7 @@ def generate_launch_description():
     use_lidar = LaunchConfiguration("use_lidar")
     use_imu = LaunchConfiguration("use_imu")
     use_ekf = LaunchConfiguration("use_ekf")
+    scan_bins = LaunchConfiguration("scan_bins")
 
     # EKF 는 IMU 가 있을 때만 의미가 있다. 둘을 AND 로 묶는다.
     fuse = PythonExpression(
@@ -224,6 +225,27 @@ def generate_launch_description():
         condition=IfCondition(use_lidar),
     )
 
+    # num_bins 는 LiDAR 회전수에 맞춰야 한다.
+    #
+    # 2026-08-20 설정 당시 LiDAR 는 3.67 Hz 로 돌아 회전당 1359 점이었고
+    # 1440 bin(0.25 deg)이 센서 분해능과 맞았다.
+    #
+    # 2026-08-26 실측: 회전수가 11.678 Hz 로 올라가 회전당 427 점,
+    # 그 중 유효한 것은 약 302 점뿐이다 (실제 분해능 0.84 deg).
+    # 샘플레이트는 약 5 kHz 로 고정이고 회전 속도만 변한 것이다.
+    #
+    #   예전  3.67 Hz x 1440 =  5,285 점/초
+    #   현재 11.678 Hz x 1440 = 16,816 점/초   <- 3.2 배
+    #
+    # 그래서 slam_toolbox 가 따라오지 못하고
+    #   "Message Filter dropping message ... queue is full"
+    # 로 스캔을 버렸다. 1440 -> 450 으로 낮추면 예전 부하로 돌아가고,
+    # 유효 점이 302 개뿐이라 정보는 하나도 잃지 않는다.
+    #
+    # LiDAR 회전 속도 자체는 /dev/ttyTHS1 GPIO UART 연결에
+    # DTR 이 없어(support_motor_dtr: false) 소프트웨어로 못 바꾼다.
+    # 그래서 조절 가능한 쪽은 이 값이다.
+
     scan_normalizer = Node(
         package="argos_odometry",
         executable="scan_normalizer",
@@ -233,7 +255,7 @@ def generate_launch_description():
         parameters=[{
             "input_topic": "/scan_raw",
             "output_topic": "/scan",
-            "num_bins": 1440,
+            "num_bins": scan_bins,
             "stamp_at_midpoint": True,
         }],
         condition=IfCondition(use_lidar),
@@ -253,6 +275,15 @@ def generate_launch_description():
             "use_lidar",
             default_value="true",
             description="YDLIDAR 노드 실행 여부",
+        ),
+        DeclareLaunchArgument(
+            "scan_bins",
+            default_value="450",
+            description=(
+                "scan_normalizer 출력 격자 크기. LiDAR 회전당 유효 점 "
+                "개수에 맞춰야 한다. 11.678 Hz 에서 약 302 점이므로 450. "
+                "회전수가 다시 내려가면 실측해서 올릴 것."
+            ),
         ),
         DeclareLaunchArgument(
             "use_imu",
