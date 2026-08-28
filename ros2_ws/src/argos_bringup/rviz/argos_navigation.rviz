@@ -1,14 +1,20 @@
 Panels:
   - Class: rviz_common/Displays
+    Help Height: 0
     Name: Displays
     Property Tree Widget:
       Expanded:
         - /Global Options1
+        - /LaserScan1
+        - /LaserScan1/Topic1
         - /TF1
       Splitter Ratio: 0.5
-    Tree Height: 600
+    Tree Height: 140
   - Class: rviz_common/Views
+    Expanded:
+      - /Current View1
     Name: Views
+    Splitter Ratio: 0.5
   - Class: nav2_rviz_plugins/Navigation 2
     Name: Navigation 2
 Visualization Manager:
@@ -20,15 +26,21 @@ Visualization Manager:
       Color: 160; 160; 164
       Enabled: true
       Line Style:
-        Line Width: 0.03
+        Line Width: 0.029999999329447746
         Value: Lines
       Name: Grid
       Normal Cell Count: 0
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
       Plane: XY
       Plane Cell Count: 20
       Reference Frame: <Fixed Frame>
       Value: true
-    - Alpha: 0.7
+    - Alpha: 0.699999988079071
+      Binary representation: false
+      Binary threshold: 100
       Class: rviz_default_plugins/Map
       Color Scheme: map
       Draw Behind: true
@@ -37,67 +49,119 @@ Visualization Manager:
       Topic:
         Depth: 5
         Durability Policy: Transient Local
+        Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /map
       Update Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
         Value: /map_updates
       Use Timestamp: false
       Value: true
     - Alpha: 1
       Autocompute Intensity Bounds: true
+      Autocompute Value Bounds:
+        Max Value: 10
+        Min Value: -10
+        Value: true
+      Axis: Z
+      Channel Name: intensity
       Class: rviz_default_plugins/LaserScan
       Color: 255; 40; 40
       Color Transformer: FlatColor
       Decay Time: 0
       Enabled: true
+      Invert Rainbow: false
+      Max Color: 255; 255; 255
+      Max Intensity: 4096
+      Min Color: 0; 0; 0
+      Min Intensity: 0
       Name: LaserScan
       Position Transformer: XYZ
       Selectable: true
       Size (Pixels): 3
-      Size (m): 0.03
+      Size (m): 0.029999999329447746
       Style: Points
       Topic:
         Depth: 5
         Durability Policy: Volatile
+        Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Best Effort
         Value: /scan
       Use Fixed Frame: true
+      Use rainbow: true
       Value: true
     - Class: rviz_default_plugins/TF
       Enabled: true
+      Filter (blacklist): ""
+      Filter (whitelist): ""
       Frame Timeout: 15
       Frames:
         All Enabled: true
-      Marker Scale: 0.4
+        base_link:
+          Value: true
+        imu_link:
+          Value: true
+        laser_frame:
+          Value: true
+        map:
+          Value: true
+        odom:
+          Value: true
+      Marker Scale: 0.4000000059604645
       Name: TF
       Show Arrows: true
       Show Axes: true
       Show Names: true
       Tree:
-        {}
+        map:
+          odom:
+            base_link:
+              imu_link:
+                {}
+              laser_frame:
+                {}
       Update Interval: 0
       Value: true
-    - Angle Tolerance: 0.1
+    - Angle Tolerance: 0.10000000149011612
       Class: rviz_default_plugins/Odometry
       Covariance:
+        Orientation:
+          Alpha: 0.5
+          Color: 255; 255; 127
+          Color Style: Unique
+          Frame: Local
+          Offset: 1
+          Scale: 1
+          Value: true
+        Position:
+          Alpha: 0.30000001192092896
+          Color: 204; 51; 204
+          Scale: 1
+          Value: true
         Value: false
       Enabled: true
       Keep: 100
       Name: Odometry
-      Position Tolerance: 0.1
+      Position Tolerance: 0.10000000149011612
       Shape:
         Alpha: 1
+        Axes Length: 1
+        Axes Radius: 0.10000000149011612
         Color: 255; 25; 255
-        Head Length: 0.05
-        Head Radius: 0.05
-        Shaft Length: 0.15
-        Shaft Radius: 0.02
+        Head Length: 0.05000000074505806
+        Head Radius: 0.05000000074505806
+        Shaft Length: 0.15000000596046448
+        Shaft Radius: 0.019999999552965164
         Value: Arrow
       Topic:
         Depth: 5
         Durability Policy: Volatile
+        Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /odom
@@ -106,18 +170,21 @@ Visualization Manager:
       Class: nav2_rviz_plugins/ParticleCloud
       Color: 0; 180; 0
       Enabled: true
-      Max Arrow Length: 0.3
-      Min Arrow Length: 0.02
+      Max Arrow Length: 0.30000001192092896
+      Min Arrow Length: 0.019999999552965164
       Name: AMCL Particle Cloud
       Shape: Arrow (Flat)
       Topic:
         Depth: 5
         Durability Policy: Volatile
+        Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Best Effort
         Value: /particle_cloud
       Value: true
     - Alpha: 0.25
+      Binary representation: false
+      Binary threshold: 100
       Class: rviz_default_plugins/Map
       Color Scheme: costmap
       Draw Behind: false
@@ -126,14 +193,21 @@ Visualization Manager:
       Topic:
         Depth: 1
         Durability Policy: Transient Local
+        Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /global_costmap/costmap
       Update Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
         Value: /global_costmap/costmap_updates
       Use Timestamp: false
       Value: true
-    - Alpha: 0.55
+    - Alpha: 0.550000011920929
+      Binary representation: false
+      Binary threshold: 100
       Class: rviz_default_plugins/Map
       Color Scheme: costmap
       Draw Behind: false
@@ -142,10 +216,15 @@ Visualization Manager:
       Topic:
         Depth: 1
         Durability Policy: Transient Local
+        Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /local_costmap/costmap
       Update Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
         Value: /local_costmap/costmap_updates
       Use Timestamp: false
       Value: true
@@ -154,13 +233,25 @@ Visualization Manager:
       Class: rviz_default_plugins/Path
       Color: 255; 0; 0
       Enabled: true
+      Head Diameter: 0.30000001192092896
+      Head Length: 0.20000000298023224
+      Length: 0.30000001192092896
       Line Style: Lines
-      Line Width: 0.03
+      Line Width: 0.029999999329447746
       Name: Global Path
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
+      Pose Color: 255; 85; 255
       Pose Style: None
+      Radius: 0.029999999329447746
+      Shaft Diameter: 0.10000000149011612
+      Shaft Length: 0.10000000149011612
       Topic:
         Depth: 5
         Durability Policy: Volatile
+        Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /plan
@@ -170,13 +261,25 @@ Visualization Manager:
       Class: rviz_default_plugins/Path
       Color: 0; 100; 255
       Enabled: true
+      Head Diameter: 0.30000001192092896
+      Head Length: 0.20000000298023224
+      Length: 0.30000001192092896
       Line Style: Lines
-      Line Width: 0.04
+      Line Width: 0.03999999910593033
       Name: MPPI Local Path
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
+      Pose Color: 255; 85; 255
       Pose Style: None
+      Radius: 0.029999999329447746
+      Shaft Diameter: 0.10000000149011612
+      Shaft Length: 0.10000000149011612
       Topic:
         Depth: 5
         Durability Policy: Volatile
+        Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /local_plan
@@ -191,19 +294,32 @@ Visualization Manager:
     - Class: rviz_default_plugins/MoveCamera
     - Class: rviz_default_plugins/Select
     - Class: rviz_default_plugins/SetInitialPose
+      Covariance x: 0.25
+      Covariance y: 0.25
+      Covariance yaw: 0.06853891909122467
       Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
         Value: /initialpose
     - Class: nav2_rviz_plugins/GoalTool
+  Transformation:
+    Current:
+      Class: rviz_default_plugins/TF
   Value: true
   Views:
     Current:
       Angle: 0
       Class: rviz_default_plugins/TopDownOrtho
       Enable Stereo Rendering:
+        Stereo Eye Separation: 0.05999999865889549
+        Stereo Focal Distance: 1
+        Swap Stereo Eyes: false
         Value: false
       Invert Z Axis: false
       Name: Current View
-      Near Clip Distance: 0.01
+      Near Clip Distance: 0.009999999776482582
       Scale: 80
       Target Frame: <Fixed Frame>
       Value: TopDownOrtho (rviz_default_plugins)
@@ -211,7 +327,16 @@ Visualization Manager:
       Y: 0
     Saved: ~
 Window Geometry:
-  Height: 900
-  Width: 1400
+  Displays:
+    collapsed: false
+  Height: 946
   Hide Left Dock: false
   Hide Right Dock: true
+  Navigation 2:
+    collapsed: false
+  QMainWindow State: 000000ff00000000fd00000001000000000000018700000358fc0200000003fb000000100044006900730070006c006100790073010000003d000000c9000000c900fffffffb0000000a00560069006500770073010000010c000000a4000000a400fffffffb00000018004e0061007600690067006100740069006f006e0020003201000001b6000001df000001df00ffffff000003eb0000035800000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  Views:
+    collapsed: false
+  Width: 1400
+  X: -32
+  Y: -32
