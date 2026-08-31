@@ -51,14 +51,17 @@ import os
 
 import yaml
 
+from ament_index_python.packages import get_package_share_directory
+
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, ExecuteProcess
 from launch.conditions import IfCondition, UnlessCondition
 from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node, LifecycleNode
 
 
-ARGOS_CONFIG = os.path.expanduser("~/argos_project/config")
+ARGOS_ROOT = os.path.expanduser("~/argos_project")
+ARGOS_CONFIG = os.path.join(ARGOS_ROOT, "config")
 
 YDLIDAR_PARAMS = os.path.expanduser(
     "~/ydlidar_ws/src/ydlidar_ros2_driver/params/X4-Pro-ARGOS.yaml"
@@ -105,6 +108,9 @@ def generate_launch_description():
     use_imu = LaunchConfiguration("use_imu")
     use_ekf = LaunchConfiguration("use_ekf")
     scan_bins = LaunchConfiguration("scan_bins")
+    use_yolo = LaunchConfiguration("use_yolo")
+    use_rviz = LaunchConfiguration("use_rviz")
+    rviz_config = LaunchConfiguration("rviz_config")
 
     # EKF 는 IMU 가 있을 때만 의미가 있다. 둘을 AND 로 묶는다.
     fuse = PythonExpression(
@@ -270,11 +276,82 @@ def generate_launch_description():
         condition=IfCondition(use_lidar),
     )
 
+    # ------------------------------------------------------------
+    # 화재 인지 (YOLO) 와 RViz  -  둘 다 기본 off
+    # ------------------------------------------------------------
+    #
+    # 왜 기본값이 false 인가
+    #   argos_bringup 은 argos_slam / argos_localization /
+    #   argos_navigation / argos_fire_patrol 이 전부 include 한다.
+    #   기본을 true 로 두면 argos_fire_patrol 이 자기 인지 프로세스를
+    #   또 띄워서 카메라(/dev/video0)와 아두이노(/dev/ttyACM0)를
+    #   두 프로세스가 잡는다. 그러면 둘 다 죽는다.
+    #
+    #   그래서 쓰고 싶을 때만 명시적으로 켠다.
+    #       ros2 launch argos_bringup argos_bringup.launch.py \
+    #            use_yolo:=true use_rviz:=true
+    #
+    # 인지는 왜 ExecuteProcess 인가
+    #   fire_perception_main.py 는 ultralytics / TensorRT 가 필요해서
+    #   시스템 python 이 아니라 ~/.venv/bin/python 으로 돌려야 한다.
+    #   ROS 패키지가 아니므로 Node 가 아니라 ExecuteProcess 를 쓴다.
+    #   argos_fire_patrol.launch.py 가 쓰는 방식과 같다.
+
+    fire_perception = ExecuteProcess(
+        cmd=[
+            os.path.expanduser("~/.venv/bin/python"),
+            os.path.join(
+                ARGOS_ROOT, "scripts", "fire_perception_main.py"
+            ),
+        ],
+        output="screen",
+        emulate_tty=True,
+        additional_env={"PYTHONUNBUFFERED": "1"},
+        condition=IfCondition(use_yolo),
+    )
+
+    rviz = Node(
+        package="rviz2",
+        executable="rviz2",
+        name="rviz2",
+        output="screen",
+        arguments=["-d", rviz_config],
+        parameters=[{"use_sim_time": False}],
+        condition=IfCondition(use_rviz),
+    )
+
     return LaunchDescription([
         DeclareLaunchArgument(
             "use_lidar",
             default_value="true",
             description="YDLIDAR 노드 실행 여부",
+        ),
+        DeclareLaunchArgument(
+            "use_yolo",
+            default_value="false",
+            description=(
+                "화재 인지(fire_perception_main.py) 실행 여부. "
+                "카메라와 /dev/ttyACM0 를 이 프로세스가 소유하므로 "
+                "인지를 쓰는 다른 launch 와 같이 켜면 안 된다."
+            ),
+        ),
+        DeclareLaunchArgument(
+            "use_rviz",
+            default_value="false",
+            description="RViz 실행 여부",
+        ),
+        DeclareLaunchArgument(
+            "rviz_config",
+            default_value=os.path.join(
+                get_package_share_directory("argos_bringup"),
+                "rviz", "argos_slam.rviz",
+            ),
+            description=(
+                "RViz 설정 파일. 기본값 argos_slam.rviz 는 "
+                "Grid/Map/LaserScan/TF/Odometry 만 담고 있어 가볍고, "
+                "LaserScan QoS 가 Best Effort 로 맞춰져 있다. "
+                "Nav2 화면이 필요하면 argos_navigation.rviz 를 준다."
+            ),
         ),
         DeclareLaunchArgument(
             "scan_bins",
@@ -308,4 +385,6 @@ def generate_launch_description():
         lidar,
         scan_normalizer,
         laser_tf,
+        fire_perception,
+        rviz,
     ])
