@@ -418,6 +418,32 @@ class FireNavIntegrated(Node):
             ),
         )
 
+        # 팔로워봇 진화 지령.
+        #
+        # 팔로워 쪽 fire_supervisor 가 /fire/dispatch 를 구독한다.
+        # 프로토콜은 엄격하다 (follower_fire_control/protocol.py).
+        #   필드 7개 정확히: schema, mission_id, frame_id, x, y, yaw,
+        #                   main_cleared
+        #   schema 는 1, frame_id 는 "map", main_cleared 는 JSON bool.
+        #   추가 필드가 있거나 하나라도 빠지면 거부된다.
+        #
+        # 같은 mission_id 로 두 번 보낸다.
+        #   HOLD 도달   main_cleared=false  -> 팔로워는 WAIT_CLEARANCE
+        #   순찰 복귀   main_cleared=true   -> 팔로워가 출발
+        #
+        # 메인봇이 불 0.6 m 앞에 서 있는 동안 팔로워가 물을 뿌리면
+        # 그대로 맞기 때문이다. 두 번째 지령이 "이제 비켰다" 는 신호다.
+        #
+        # 좌표는 두 번 다 완전히 같아야 한다. 팔로워는 1e-6 이내로
+        # 비교해서 다르면 "same mission_id cannot change target" 으로
+        # 거부한다. 그래서 첫 지령을 그대로 저장해 두었다가 재사용한다.
+        self._dispatch_pub = self.create_publisher(
+            String, "/fire/dispatch", 10
+        )
+
+        # 마지막으로 보낸 지령 (mission_id, x, y, yaw)
+        self._dispatch: Optional[tuple] = None
+
         # 인지 프로세스에 "지금 이 자리에서 알림을 보내라" 고 요청한다.
         # 텔레그램 전송은 인지팀 원본이 소유하므로 우리가 직접 못 보낸다.
         self._alert_request_pub = self.create_publisher(
@@ -834,12 +860,51 @@ class FireNavIntegrated(Node):
             self._map_origin_y = float(msg.info.origin.position.y)
             self._map_origin_yaw = yaw_from_quat(msg.info.origin.orientation)
 
+    def send_fire_dispatch(self, cleared: bool) -> None:
+        """팔로워봇에 진화 지령을 보낸다.
+
+        cleared=False 는 "불은 여기다, 다만 내가 아직 그 앞에 있다",
+        cleared=True 는 "비켰다, 와도 된다" 는 뜻이다.
+        """
+
+        if self._dispatch is None:
+            return
+
+        mission_id, x, y, yaw = self._dispatch
+
+        payload = {
+            "schema": 1,
+            "mission_id": mission_id,
+            "frame_id": "map",
+            "x": x,
+            "y": y,
+            "yaw": yaw,
+            "main_cleared": bool(cleared),
+        }
+
+        msg = String()
+        msg.data = json.dumps(payload, separators=(",", ":"))
+        self._dispatch_pub.publish(msg)
+
+        self.get_logger().warn(
+            f"팔로워 지령 [{mission_id}] "
+            f"({x:+.3f}, {y:+.3f}) main_cleared={cleared}"
+        )
+
     def set_fire_episode(self, active: bool) -> None:
-        """화재 처리 구간의 시작/끝을 인지 쪽에 알린다."""
+        """화재 처리 구간의 시작/끝을 인지 쪽에 알린다.
+
+        구간이 끝난다는 것은 메인봇이 불 앞을 떠나 순찰로 돌아간다는
+        뜻이다. 그 순간이 팔로워봇에게 "이제 와도 된다" 고 알릴 때다.
+        """
 
         msg = Bool()
         msg.data = bool(active)
         self._episode_pub.publish(msg)
+
+        if not active and self._dispatch is not None:
+            self.send_fire_dispatch(cleared=True)
+            self._dispatch = None
 
     def report_fire_location(self, bearing: float, distance: float) -> bool:
         """HOLD 지점에서 화재 좌표를 확정해 발행하고 알림을 요청한다.
@@ -890,6 +955,16 @@ class FireNavIntegrated(Node):
         msg = String()
         msg.data = json.dumps(request, separators=(",", ":"))
         self._alert_request_pub.publish(msg)
+
+        # 팔로워 지령용 mission_id. 프로토콜 제약은
+        #   [A-Za-z0-9][A-Za-z0-9_.:-]{0,63}
+        # 이라 하이픈과 숫자만 쓴다.
+        mission_id = "argos-{}".format(int(time.time() * 1000))
+        self._dispatch = (mission_id, round(fx, 6), round(fy, 6),
+                          round(fire_yaw, 6))
+
+        # 아직 내가 불 앞에 있다. 팔로워는 WAIT_CLEARANCE 로 대기한다.
+        self.send_fire_dispatch(cleared=False)
 
         self.get_logger().warn(
             f"화재 좌표 확정: map ({fx:+.2f}, {fy:+.2f})  "
