@@ -242,8 +242,18 @@ def select_patrol_target(
     start_gx = int((robot_x - origin_x) / resolution)
     start_gy = int((robot_y - origin_y) / resolution)
 
-    if not _disk_is_free(grid, start_gx, start_gy, radius_cells, free_max):
+    height, width = grid.shape
+    if not (0 <= start_gx < width and 0 <= start_gy < height):
         return None
+
+    # 예전에는 로봇 자신의 원판이 깨끗하지 않으면 여기서 바로 포기했다.
+    # 그건 빠져나갈 수 없는 상태를 만든다: 제 자리가 위험하다고 판단해서
+    # 안 움직이는데, 안 움직이니 영원히 그 자리다.  2026-09-01 실외 시험에서
+    # 순찰 목표 4개를 소화한 뒤 원판에 미지 7 · 점유 13 셀이 걸려 151 번
+    # 연속으로 표본을 한 번도 못 뽑고 멈춰 섰다.
+    #
+    # 로봇은 이미 그 자리에 물리적으로 있다.  나가는 길을 찾는 것이 맞다.
+    # 목표점 쪽 검사는 그대로 엄격하게 두므로 위험한 곳으로 보내지는 않는다.
 
     for _ in range(max(1, attempts)):
         angle = rng.uniform(-math.pi, math.pi)
@@ -492,10 +502,10 @@ class FireNavIntegrated(Node):
             # 클래스별 방위각 근거 최소 confidence
             "bearing_conf_fire": 0.10,
             "bearing_conf_smoke": 0.25,
-            "bearing_conf_spark": 0.60,
+            "bearing_conf_spark": 0.50,
             # 담배꽁초도 방위각 후보에 넣는다. 0.99 는 사실상 "쓰지 않음"
             # 이었다. 접근 대상이 되었으므로 실제 임계값을 준다.
-            "bearing_conf_cigarette_butt": 0.45,
+            "bearing_conf_cigarette_butt": 0.50,
             "bearing_priority": ["fire", "smoke", "spark", "cigarette_butt"],
 
             # 접근해서 좌표를 넘길 대상. 여기 있는 클래스만 ALIGN/APPROACH
@@ -510,9 +520,9 @@ class FireNavIntegrated(Node):
 
             # 접근을 시작할 클래스별 confidence. fire 는 기존 fire_conf 를 쓴다.
             # 꽁초는 작고 오탐이 잦아 불보다 높게 잡는다.
-            "approach_conf_cigarette_butt": 0.55,
+            "approach_conf_cigarette_butt": 0.50,
             "approach_conf_smoke": 0.60,
-            "approach_conf_spark": 0.70,
+            "approach_conf_spark": 0.50,
 
             # 화재 확정
             "fire_conf": 0.35,
@@ -553,6 +563,10 @@ class FireNavIntegrated(Node):
 
             # 불이 아닌 위험(담배꽁초 / 연기 등)에서도 멈춰서 알림을
             # 보내고, 전송이 끝나면 접근하지 않고 순찰로 돌아간다.
+            # 스파크 / 담배꽁초는 오탐이 잦다.  이 값 미만이면 그 둘만으로는
+            # 위험상황으로 확정하지 않는다.  불 / 연기 / 센서 단독은 그대로 둔다.
+            "danger_conf_spark": 0.50,
+            "danger_conf_cigarette_butt": 0.50,
             "danger_stop_enabled": True,
             # 같은 위험을 계속 보면서 매번 멈추지 않도록 하는 억제 시간.
             # 원본 텔레그램 쿨다운과 같게 두는 것이 자연스럽다.
@@ -648,6 +662,10 @@ class FireNavIntegrated(Node):
         self.alert_skip_grace = float(value("alert_skip_grace"))
         self.approach_on_fire = bool(value("approach_on_fire"))
         self.hold_max_seconds = float(value("hold_max_seconds"))
+        self.danger_class_floor = {
+            "spark": float(value("danger_conf_spark")),
+            "cigarette_butt": float(value("danger_conf_cigarette_butt")),
+        }
         self.danger_stop_enabled = bool(value("danger_stop_enabled"))
         self.danger_stop_cooldown = float(value("danger_stop_cooldown"))
 
@@ -781,6 +799,47 @@ class FireNavIntegrated(Node):
             return float((payload.get("confs") or {}).get(name, 0.0))
         except (TypeError, ValueError):
             return 0.0
+
+    def pose_ready(self) -> bool:
+        """화재 좌표를 계산해도 되는 상태인가.
+
+        화재 좌표는 로봇 자세에 전적으로 의존한다.  위치추정이 안 된
+        상태에서 계산하면 그 오차가 그대로 팔로워에게 전달되어 엉뚱한
+        곳에 물을 쏘게 된다.  2026-09-01 시험에서 실제로 그랬다:
+        메인봇이 초기 자세를 받기 60 s 전에 지령 두 건을 보냈고,
+        약 0.8 m 어긋난 좌표가 나갔다.
+
+        순찰 쪽(_patrol_tick)에는 이 검사가 있었지만 화재 대응 쪽에는
+        없었다.  알림은 인지 노드가 따로 내므로 여기서 막아도 통보가
+        누락되지는 않는다.
+        """
+        return self._initial_pose_received or not self.require_initial_pose
+
+    def weak_class_only(self, payload: dict) -> Optional[str]:
+        """스파크/담배만 잡혔는데 둘 다 기준 미달이면 그 사유를 돌려준다.
+
+        게이트 대상이 아닌 클래스가 하나라도 잡혔으면 판단하지 않는다.
+        아무것도 안 잡혔으면(가스/온도 단독) 역시 막지 않는다.
+        """
+        confs = payload.get("confs")
+        if not isinstance(confs, dict):
+            return None
+
+        for name in confs:
+            if (name not in self.danger_class_floor
+                    and self.class_confidence(payload, name) > 0.0):
+                return None
+
+        seen = []
+        for name, floor in self.danger_class_floor.items():
+            value = self.class_confidence(payload, name)
+            if value <= 0.0:
+                continue
+            if value >= floor:
+                return None
+            seen.append(f"{name}={value:.3f}<{floor:.2f}")
+
+        return ", ".join(seen) if seen else None
 
     def approach_target(self, payload: dict, bearing_class):
         """접근 대상인지 판단하고 (클래스, confidence) 를 돌려준다.
@@ -1334,6 +1393,10 @@ def run() -> int:
         state = "NAV_PATROL"
         confirm_started = None
         danger_confirm_started = None
+        # 약한 스파크/담배로 위험 판정을 보류했다는 로그의 도배를 막는다.
+        weak_log_at = 0.0
+        # 자세를 못 잡아 화재 대응을 미뤘다는 로그도 마찬가지다.
+        pose_wait_log_at = 0.0
         # ALERT_WAIT 가 끝난 뒤 무엇을 할지. "approach" 또는 "patrol".
         wait_then = "approach"
         danger_suppressed_until = 0.0
@@ -1439,6 +1502,18 @@ def run() -> int:
                 node.mlp_danger(detection) is True or raw_fire
             )
 
+            # 약한 스파크 / 담배꽁초만으로는 위험으로 확정하지 않는다.
+            # MLP 는 네 클래스를 한 확률로 합치므로 여기서 따로 걸러야 한다.
+            if danger_now:
+                weak = node.weak_class_only(detection)
+                if weak is not None:
+                    danger_now = False
+                    if now - weak_log_at > 5.0:
+                        node.get_logger().info(
+                            f"신뢰도 미달로 위험 판정 보류 ({weak})"
+                        )
+                        weak_log_at = now
+
             if danger_now:
                 if danger_confirm_started is None:
                     danger_confirm_started = now
@@ -1452,6 +1527,17 @@ def run() -> int:
             clear_m = node.front_clearance()
             scan_ok = node.scan_fresh() and node.lookup_laser_tf()
 
+            # 자세가 없으면 화재 좌표를 만들 수 없다.  왜 가만히 있는지
+            # 알 수 있게 남긴다.  알림 자체는 인지 노드가 따로 낸다.
+            if (confirmed and bearing is not None
+                    and not node.pose_ready()
+                    and now - pose_wait_log_at > 5.0):
+                node.get_logger().warn(
+                    "불을 봤지만 위치추정 전이라 대응을 미룬다 "
+                    "(2D Pose Estimate 를 먼저 받아야 좌표가 맞다)"
+                )
+                pose_wait_log_at = now
+
             # ---------------- 상태기계 ----------------
 
             if state == "NAV_PATROL":
@@ -1459,6 +1545,7 @@ def run() -> int:
                     confirmed
                     and bearing is not None
                     and now >= fire_suppressed_until
+                    and node.pose_ready()
                 ):
                     node.set_control_mode("fire")
                     node.set_fire_twist(0.0, 0.0)

@@ -111,14 +111,21 @@ class _GatedQueue:
       아무도 모르는 상황이 제일 나쁘다.
     """
 
-    def __init__(self, real_queue, logger=None):
+    def __init__(self, real_queue, logger=None, ns=None, conf_gates=None):
         self._real = real_queue
         self._logger = logger
         self._lock = threading.Lock()
 
+        # 원본 모듈 전역. _allow 는 원본 루프 스레드 안에서 동기로 돌기
+        # 때문에, 이걸 읽는 시점의 yolo_confs 는 알림을 만든 바로 그
+        # 프레임의 값이다.
+        self._ns = ns
+        self._conf_gates = dict(conf_gates or {})
+
         self.episode_active = False
         self.sent_in_episode = 0
         self.blocked = 0
+        self.blocked_weak = 0
 
     # --- 주행 노드가 알려주는 화재 처리 구간 ---
 
@@ -148,9 +155,62 @@ class _GatedQueue:
         if self._allow(item):
             return self._real.put(item, *args, **kwargs)
 
+    def _weak_class_only(self) -> str | None:
+        """스파크/담배만 잡혔는데 둘 다 기준 미달이면 그 사유를 돌려준다.
+
+        원본에는 클래스별 알림 기준이 없다. MLP 확률 하나로만 알림을 낸다.
+        그런데 스파크와 담배꽁초는 오탐이 잦아서, 약한 신뢰도로 알림이
+        나가면 사용자가 알림을 무시하게 된다.
+
+        막는 범위를 좁게 잡는다. 불이나 연기가 조금이라도 잡혔으면 통과,
+        YOLO 가 아무것도 못 잡은 가스/온도 단독 알림도 통과시킨다.
+        오직 "스파크 또는 담배가 잡혔는데 둘 다 기준 미달" 일 때만 막는다.
+        """
+        if not self._conf_gates or self._ns is None:
+            return None
+
+        confs = self._ns.get("yolo_confs")
+        if not isinstance(confs, dict):
+            return None            # 확인이 안 되면 막지 않는다
+
+        def conf(name):
+            try:
+                return float(confs.get(name, 0.0) or 0.0)
+            except (TypeError, ValueError):
+                return 0.0
+
+        # 게이트 대상이 아닌 클래스가 하나라도 잡혔으면 판단하지 않는다.
+        for name in confs:
+            if name not in self._conf_gates and conf(name) > 0.0:
+                return None
+
+        seen = []
+        for name, floor in self._conf_gates.items():
+            value = conf(name)
+            if value <= 0.0:
+                continue
+            if value >= floor:
+                return None        # 하나라도 기준을 넘으면 통과
+            seen.append(f"{name}={value:.3f}<{floor:.2f}")
+
+        if not seen:
+            return None            # 아무것도 안 잡힘 = 센서 단독 알림. 통과.
+        return ", ".join(seen)
+
     def _allow(self, item) -> bool:
         if item is None:            # 원본 종료 신호는 항상 통과
             return True
+
+        weak = self._weak_class_only()
+        if weak is not None:
+            with self._lock:
+                self.blocked_weak += 1
+                count = self.blocked_weak
+            if self._logger is not None:
+                self._logger(
+                    f"[MAIN] 신뢰도 미달로 알림 차단 ({weak}) -- 누적 {count}건"
+                )
+            return False
 
         with self._lock:
             if not self.episode_active:
@@ -594,6 +654,14 @@ class FirePerceptionPublisher(Node):
         #   끄더라도 /main/fire_target 토픽은 그대로 발행된다.
         #   팔로워봇은 텔레그램이 아니라 그 토픽으로 좌표를 받는다.
         self.declare_parameter("send_hold_alert", False)
+        # 스파크/담배꽁초는 오탐이 잦다. 이 값 미만이면 알림을 막는다.
+        # 불·연기는 게이트하지 않는다.
+        self.declare_parameter("alert_conf_spark", 0.5)
+        # 원본 L97 FIRE_PROB_THRESHOLD.  MLP 확률이 이 값 이상으로
+        # ALERT_CONFIRM_SECONDS 동안 유지되면 위험으로 확정하고 알림을 낸다.
+        # 0 이하로 두면 원본 값을 그대로 쓴다.
+        self.declare_parameter("fire_prob_threshold", 0.80)
+        self.declare_parameter("alert_conf_cigarette_butt", 0.5)
 
         self.script_path = Path(
             self.get_parameter("perception_script").value
@@ -611,6 +679,15 @@ class FirePerceptionPublisher(Node):
         self.send_hold_alert = bool(
             self.get_parameter("send_hold_alert").value
         )
+        self.fire_prob_threshold = float(
+            self.get_parameter("fire_prob_threshold").value
+        )
+        self.alert_conf_gates = {
+            "spark": float(self.get_parameter("alert_conf_spark").value),
+            "cigarette_butt": float(
+                self.get_parameter("alert_conf_cigarette_butt").value
+            ),
+        }
 
         # 정확한 화재 위치 지도를 그릴 때 쓰는 지도. Nav2 가 불러온 것과
         # 같은 파일이어야 좌표가 일치한다.
@@ -1057,7 +1134,11 @@ class PerceptionRunner:
         # 그래서 전역만 게이트로 바꾸면
         #   메인 루프 -> 게이트 -> (통과 시) 진짜 큐 -> 워커
         # 가 되어 원본 파일을 고치지 않고 중간에 낄 수 있다.
-        self._gate = _GatedQueue(real, self.warn)
+        self._gate = _GatedQueue(
+            real, self.warn,
+            ns=self.ns,
+            conf_gates=self.node.alert_conf_gates,
+        )
         self.ns[key] = self._gate
 
         if self.node.suppress_original_alert:
@@ -1154,6 +1235,37 @@ class PerceptionRunner:
         self.warn(
             f"[MAIN] 텔레그램 쿨다운 변경: {before}s -> "
             f"{self.node.telegram_cooldown}s "
+            "(원본 파일은 수정하지 않고 실행 중에만 적용)"
+        )
+
+        self.apply_threshold_override()
+
+    def apply_threshold_override(self) -> None:
+        """경보 기준(MLP 확률)을 실행 중에만 바꾼다.
+
+        원본 L97 의 모듈 전역이고 L832 / L896 / L965 가 매 루프마다 다시
+        읽는다.  텔레그램 본문의 "경보 기준" 표시도 같은 이름을 쓰므로
+        여기 한 곳만 바꾸면 판정과 표시가 함께 따라온다.
+        """
+        if self.node.fire_prob_threshold <= 0.0:
+            self.log("[MAIN] 경보 기준: 원본 값을 그대로 사용합니다.")
+            return
+
+        key = "FIRE_PROB_THRESHOLD"
+
+        if key not in self.ns:
+            self.error(
+                f"[MAIN] 원본에 {key} 가 없어 경보 기준을 바꾸지 못했습니다. "
+                "인지팀이 이름을 바꿨는지 확인하십시오."
+            )
+            return
+
+        before = self.ns[key]
+        self.ns[key] = self.node.fire_prob_threshold
+
+        self.warn(
+            f"[MAIN] 경보 기준 변경: {before:.2f} -> "
+            f"{self.node.fire_prob_threshold:.2f} "
             "(원본 파일은 수정하지 않고 실행 중에만 적용)"
         )
 
