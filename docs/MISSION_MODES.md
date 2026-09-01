@@ -71,6 +71,22 @@ python3 scripts/argos_mode.py reset
 `enable_pump`는 팔로우봇의 로컬 launch 설정만이 결정한다. 펌프가 꺼진
 dry-run에서도 이동/도착 상태 기계는 시험할 수 있고 실제 살수는 하지 않는다.
 
+전체 기동은 기본적으로 `standby`, 모터 꺼짐, 펌프 꺼짐이다. 단계별 opt-in은
+팔로우봇에서 다음처럼 한다.
+
+```bash
+# 통신/상태만: 움직이지 않음
+~/fire_test_logs/run_follower_bringup.sh
+
+# 주행 시험: 펌프는 계속 꺼짐
+ARGOS_INITIAL_MODE=standby ARGOS_ENABLE_MOTION=true \
+  ARGOS_ENABLE_PUMP=false ~/fire_test_logs/run_follower_bringup.sh
+
+# 최종 자동 진화: 안전 구역과 물 계통을 확인한 경우에만
+ARGOS_INITIAL_MODE=auto ARGOS_ENABLE_MOTION=true \
+  ARGOS_ENABLE_PUMP=true ~/fire_test_logs/run_follower_bringup.sh
+```
+
 ## ROS 인터페이스
 
 - 모드 요청: `/follower/mode/set` (`std_msgs/String`, strict JSON)
