@@ -1,0 +1,32 @@
+{
+  "d0.3": {
+    "frames": 275,
+    "detected": 0,
+    "detection_rate": 0.0,
+    "laplacian_mean": 51.68053399234694
+  },
+  "d0.5": {
+    "frames": 360,
+    "detected": 21,
+    "detection_rate": 0.058333333333333334,
+    "laplacian_mean": 73.43381250519555,
+    "apparent_px_mean": 185.94002268156567,
+    "range_mean_m": 0.3043605058692481,
+    "range_std_m": 0.002940292513580369,
+    "jitter_xyz_mm": [
+      8.629047579798723,
+      1.0042288373685566,
+      2.9699482626169855
+    ],
+    "reproj_px_mean": 0.9405303397502872,
+    "reproj_px_p95": 1.4134624870622376,
+    "ambiguity_mean": 0.17726253151864138,
+    "ambiguity_p95": 0.2616699040777428,
+    "solution_gap_deg_mean": 26.16176786892727,
+    "frame_to_frame_rot_deg_p95": 7.154837944195318,
+    "frame_to_frame_rot_deg_max": 7.233504183423408,
+    "flip_rate": 0.0,
+    "tape_m": 0.5,
+    "range_bias_mm": -195.63949413075187
+  }
+}

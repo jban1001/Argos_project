@@ -1,0 +1,126 @@
+# 팔로워 AMCL -- 메인 로봇 지도에 대해 자기 위치를 추정한다
+#
+# 출발점은 nav2_amcl 노드가 선언한 기본값을 그대로 받아적은 것이다
+# (`ros2 param dump /amcl`). **바꾼 것은 프레임과 토픽 네 개뿐이고**,
+# 나머지는 근거 없이 건드리지 않았다. 조정 후보는 아래 주석에 근거와 함께
+# 남겨두었다 -- 실제로 돌려보고 증상을 본 다음에 바꾼다.
+#
+# 왜 메인 지도를 쓰는가:
+#   화재 좌표는 메인 지도 기준으로 온다. 팔로워가 slam_toolbox 로 자기 지도를
+#   만들면 원점이 달라서 같은 숫자가 다른 곳을 가리킨다. 좌표 인계가
+#   성립하려면 두 로봇이 같은 지도를 봐야 한다.
+#   메인은 이미 /map 을 읽기 전용으로 내보내고 있다 (follower_ws/config/main_robot.yaml).
+#
+# 켜기 전에 반드시 확인할 것:
+#   1) follower_base_link -> follower_laser_frame 실측이 되어 있는가
+#        없으면 스캔이 로봇 기준 엉뚱한 자리에 찍혀 수렴하지 않는다.
+#        라이다가 거꾸로 달려 있으므로 yaw 오프셋이 아니라 roll=180 이 필요하다.
+#   2) cooperative_node 가 꺼져 있는가
+#        그것도 map -> follower_odom 을 발행한다. 둘 다 켜면 TF 트리가 깨진다.
+#        `ros2 node list | grep cooperative` 가 비어 있어야 한다.
+#   3) follower_odom -> follower_base_link 가 나오는가 (VIO)
+#        AMCL 은 전역 보정만 하고 연속적인 odometry 는 여전히 필요하다.
+
+/follower/amcl:
+  ros__parameters:
+
+    # ---- 이 로봇의 사실. 여기만 기본값에서 바꿨다 ----
+    base_frame_id: follower_base_link      # 기본 base_footprint
+    odom_frame_id: follower_odom           # 기본 odom
+    scan_topic: /follower/scan             # 기본 scan. 마스킹된 쪽이어야 한다
+    global_frame_id: map                   # 메인과 공유. 기본값과 같음
+    map_topic: map                         # 메인이 발행. 기본값과 같음
+
+    # ---- 아래는 전부 nav2_amcl 기본값 그대로 ----
+    # 2026-08-31: 0.2 -> 0.02.  기본값 0.2 는 바퀴 오도메트리(미끄러짐이 큰
+    # 쪽)를 전제한 값이다.  우리 오도메트리는 라이다 키프레임 ICP 로,
+    # 정지 300 초 드리프트 1.1 cm, 제자리 회전 3 회에서 자이로와 1.4~4.1 도
+    # 일치다.  기본값을 그대로 쓰면 모션마다 넣는 잡음이 실제 오차보다 훨씬
+    # 크다.
+    #
+    # 왜 이 변경을 시도하는가: 올바른 자세(벽뚫음 1.4%)에서 시작해도 움직일
+    # 때마다 sigma 가 0.098 -> 0.639 m 로 단조 증가했다.  이 방은 새 장애물이
+    # 많아 빔의 37~44% 가 맵에 없는 물체를 맞히므로 센서 갱신이 약하다.
+    # 센서가 약한 만큼 모션 잡음을 실제 값에 맞춰야 균형이 맞는다.
+    #
+    # 값의 근거는 A/B 측정이다.  공식을 소스로 확인할 수 없어(설치본에 소스
+    # 없음) 이론값을 쓰지 않고, 같은 회전/전진 시험을 전후로 돌려 공분산
+    # 증가를 비교했다.  결과는 README 에 남긴다.
+    alpha1: 0.02
+    alpha2: 0.02
+    alpha3: 0.02
+    alpha4: 0.02
+    alpha5: 0.02
+    always_reset_initial_pose: false
+    beam_skip_distance: 0.5
+    beam_skip_error_threshold: 0.9
+    beam_skip_threshold: 0.3
+    do_beamskip: false
+    first_map_only: false
+    freespace_downsampling: false
+    lambda_short: 0.1
+    laser_likelihood_max_dist: 2.0
+    laser_max_range: 100.0
+    laser_min_range: -1.0
+    laser_model_type: likelihood_field
+    max_beams: 60
+    max_particles: 2000
+    min_particles: 500
+    pf_err: 0.05
+    pf_z: 0.99
+    recovery_alpha_fast: 0.0
+    recovery_alpha_slow: 0.0
+    resample_interval: 1
+    robot_model_type: nav2_amcl::DifferentialMotionModel   # 차동구동. 기본값이 이미 맞다
+    save_pose_rate: 0.5
+    set_initial_pose: false
+    sigma_hit: 0.2
+    tf_broadcast: true
+    transform_tolerance: 1.0
+    update_min_a: 0.2
+    update_min_d: 0.25
+    use_sim_time: false
+    z_hit: 0.5
+    z_max: 0.05
+    z_rand: 0.5
+    z_short: 0.05
+
+# ---------------------------------------------------------------------------
+# 조정 후보 -- 증상을 보고 나서 바꾼다. 미리 바꾸지 않는다.
+# ---------------------------------------------------------------------------
+#
+# max_beams: 60
+#   AMCL 은 스캔에서 60 개를 고르게 뽑아 쓴다. 이 로봇은 차체가 시야의
+#   58 도(16%)를 고정으로 가리므로, 60 개 중 약 10 개가 늘 무효 방위에
+#   떨어진다. 실효 빔이 50 개쯤이라는 뜻이다.
+#   -> 수렴이 느리거나 복도에서 앞뒤를 헷갈리면 90~120 으로 올려본다.
+#      올리면 CPU 를 더 쓴다.
+#
+# min_particles / max_particles: 500 / 2000
+#   초기 자세를 모르면 파티클이 많아야 한다. 다만 협조 위치추정으로
+#   /initialpose 를 쏴서 시작하면 굳이 올릴 필요가 없다 (아래 참고).
+#   -> 초기 수렴이 안 되면 올린다. 먼저 initialpose 를 시도할 것.
+#
+# laser_max_range: 100.0
+#   스캔 메시지의 range_max 가 100.0 으로 보고되는데 LDS-02 의 실제 최대는
+#   그보다 훨씬 짧다. 실측하지 않아 기본값을 그대로 두었다.
+#   -> 실제 최대 거리를 재면 그 값으로 바꾼다.
+#
+# laser_min_range: -1.0  (스캔의 range_min 을 쓴다는 뜻)
+#   LDS-02 는 range_min 을 0.0 으로 보고하지만 실제 광학 최소거리는 0.162 m 다.
+#   기둥은 마스크가 이미 지우므로 지금은 문제되지 않는다.
+#   -> 근거리 잡음이 보이면 0.20 으로 올린다.
+#
+# ---------------------------------------------------------------------------
+# 초기 자세: ArUco 협조 위치추정을 버리지 않는 방법
+# ---------------------------------------------------------------------------
+# AMCL 의 약점은 초기 자세를 모르면 못 푼다는 것이고,
+# ArUco 의 강점은 메인을 보면 즉시 상대 자세가 나온다는 것이다.
+#
+# cooperative_node 가 map -> follower_odom TF 를 발행하는 대신
+# /initialpose 를 한 번 쏘고 빠지면 둘이 맞물린다:
+#   - AMCL 이 TF 를 단독 소유한다 (충돌 없음)
+#   - 초기 수렴이 빨라진다
+#   - 지금까지 한 ArUco/협조 작업이 그대로 쓰인다
+#
+# 아직 구현하지 않았다. AMCL 이 실제로 수렴하는 것을 먼저 확인한 뒤에 붙인다.

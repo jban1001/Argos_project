@@ -1,0 +1,23 @@
+[
+  {
+    "gravity_ms2": 9.782,
+    "noise_ms2": 0.0143,
+    "signal_ms2": 0.4617,
+    "snr": 32.4,
+    "yaw_offset_deg": 2.58,
+    "straightness": 3.7,
+    "samples": null,
+    "measured_at": "2026-08-27 (저장 기능 추가 전)",
+    "source": "터미널 기록에서 옮김 -- 원시 샘플 없음"
+  },
+  {
+    "gravity_ms2": 9.780865508837632,
+    "noise_ms2": 0.018225258498925003,
+    "signal_ms2": 0.668121035013882,
+    "snr": 36.65907043531319,
+    "yaw_offset_deg": 3.0139240768077116,
+    "straightness": 4.47929280178792,
+    "samples": 3975,
+    "measured_at": "2026-08-27 18:50:08 KST"
+  }
+]

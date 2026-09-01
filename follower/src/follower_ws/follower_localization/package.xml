@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>follower_localization</name>
+  <version>0.1.0</version>
+  <description>
+    ArUco 로 본 메인 로봇 pose 와 VIO local odometry 를 합쳐 팔로워의 map 기준
+    절대 위치를 정하고, map -> follower_odom 을 보정한다.
+  </description>
+  <maintainer email="hs12253865@gmail.com">doorian0615</maintainer>
+  <license>MIT</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>tf2_geometry_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>diagnostic_msgs</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+
+  <export><build_type>ament_python</build_type></export>
+</package>

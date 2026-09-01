@@ -1,0 +1,31 @@
+# Follower MCU bridge: Arduino Mega 2560 on /dev/ttyACM0.
+#
+# Only deployment-specific values live here. Everything else (clock-sync
+# windows, command limits, noise defaults) keeps the value the node itself
+# declares -- repeating those here would put the same number in two places,
+# and the camera lock bug showed how that ends: one copy is edited, the other
+# silently wins, and the verification step reports the wrong value as "ok".
+/follower/serial_bridge:
+  ros__parameters:
+
+    # 이 로봇은 모터 배선이 반대라 F 를 주면 뒤로 간다. 2026-08-29 실측:
+    # 바퀴를 들고 /follower/motor_command 로 F 를 주니 역방향으로 돌았다.
+    # 배선을 바로잡으면 이 값을 false 로 되돌릴 것. 뒤집는 것은 전후뿐이고
+    # 좌우 회전은 건드리지 않는다.
+    invert_drive: true
+    port: /dev/ttyACM0
+
+    # Firmware v2.0 (followingbot_mega.ino) streams at this rate. If the board
+    # is running something else the bridge will read garbage and never see
+    # READY -- that is a firmware mismatch, not a baud to be "fixed" here.
+    baud: 230400
+
+    imu_frame_id: follower_imu_link
+
+    # Without this the bridge publishes the accelerometer at nominal scale,
+    # and this unit reads |a| = 8.38 m/s^2 rather than 9.81 -- a 15 % error
+    # that VIO would absorb as a gravity-direction bias.
+    #
+    # Absolute path, matching the convention camera.yaml already uses for
+    # camera_info_url: the file lives in the source tree, not in share/.
+    calibration_file: /home/doorian0615/follower_ws/config/imu_calibration.yaml

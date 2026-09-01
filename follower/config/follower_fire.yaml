@@ -1,0 +1,59 @@
+# Fire-response choices.  Hardware facts remain in follower_ws calibration files.
+/follower/fire_supervisor:
+  ros__parameters:
+    # Both actuators are opt-in.  With these false the full state machine and
+    # status protocol run, but no motor or pump command is published.
+    enable_motion: false
+    enable_pump: false
+    # auto: 기존 동작(추종 + 화재 지령), follow: 추종만,
+    # coordinate_fire: 좌표 화재 임무만, standby: 완전 정지.
+    initial_mode: auto
+
+    control_rate_hz: 20.0
+    map_frame: map
+    base_frame: follower_base_link
+    scan_topic: /follower/scan
+
+    # LiDAR emergency stop in the forward 60-degree sector.
+    front_obstacle_distance_m: 0.45
+    front_obstacle_half_angle_deg: 30.0
+    obstacle_timeout_s: 10.0
+
+    # Point controller.  PWM bounds reuse values already proven to move this
+    # tracked chassis; they are choices, not claimed physical measurements.
+    arrival_radius_m: 0.18
+    yaw_tolerance_deg: 8.0
+    pivot_above_deg: 20.0
+    max_throttle: 150
+    min_throttle: 140
+    throttle_gain_per_m: 60.0
+    max_yaw_rate_dps: 12.0
+    steering_gain_dps_per_deg: 0.5
+
+    # Fail-closed freshness and timing gates.
+    follow_command_max_age_s: 0.2
+    pose_max_age_s: 0.5
+    localization_grace_s: 1.0
+    telemetry_max_age_s: 0.3
+    settle_duration_s: 1.0
+    mission_timeout_s: 120.0
+
+    # A local choice; the remote dispatch cannot increase it.
+    spray_duration_s: 3.0
+    max_spray_duration_s: 10.0
+    pump_feedback_timeout_s: 0.6
+    # 임무를 마치면 지령받은 자리로 돌아간다.  안 돌아가면 불이 있던
+    # 자리에 그대로 서 있고, 순찰 복귀한 메인봇과 부딪친다.
+    return_home: true
+    home_arrival_radius_m: 0.30
+    return_timeout_s: 120.0
+
+/follower/serial_bridge:
+  ros__parameters:
+    invert_drive: true
+    port: /dev/ttyACM0
+    baud: 230400
+    imu_frame_id: follower_imu_link
+    calibration_file: /home/doorian0615/follower_ws/config/imu_calibration.yaml
+    pump_command_timeout: 0.25
+    pump_telemetry_max_age: 0.3

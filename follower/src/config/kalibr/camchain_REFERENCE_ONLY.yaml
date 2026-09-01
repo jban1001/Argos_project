@@ -1,0 +1,17 @@
+# 참고용입니다. Kalibr 에 --cam 으로 넘기지 마세요.
+#
+# 아래 distortion_coeffs 는 우리 plumb_bob 5계수에서 k3 를 버린
+# 것입니다 (버린 k3 = 0.17977). 그 결과 이미지 가장자리에서
+# 최대 28.5 px 의 오차가 생깁니다. 그대로 쓰면 Kalibr 가 그 오차를
+# 카메라-IMU 자세로 떠넘겨 흡수하려 듭니다.
+#
+# 대신 kalibr_calibrate_cameras 로 Kalibr 가 자기 radtan 모델을
+# 직접 추정하게 하고, 그 결과 camchain 을 imu-camera 단계에 쓰세요.
+# 이 파일은 그 결과가 얼마나 비슷하게 나왔는지 눈으로 대조하는 용도입니다.
+cam0:
+  camera_model: pinhole
+  intrinsics: [489.431906, 490.251605, 311.038787, 244.225163]
+  distortion_model: radtan
+  distortion_coeffs: [0.172710, -0.409024, 0.001282, 0.001983]
+  resolution: [640, 480]
+  rostopic: /follower/camera/image_raw

@@ -1,0 +1,19 @@
+# === PROVISIONAL ===
+# 최종 쿨러 장착 후 재확인 필요. bias 는 온도에 따라 변한다.
+# Follower IMU calibration -- scripts/13_calibrate_accel_sweep.py
+# Model: sphere. Bias only means per-axis scale was left at 1.0,
+# which the residual below confirms was adequate.
+# Applied by follower_serial_bridge as:
+#   a_si[i] = (raw[i] - accel_bias_lsb[i]) * accel_scale[i]
+#             / accel_lsb_per_g * 9.80665
+# Gyro is passed through RAW on purpose: its bias drifts with
+# temperature and the VIO estimates it online.
+# 11 directions, spread 0.25, worst residual 0.0366 m/s^2, held-out 0.0307 m/s^2
+# generated: 2026-08-25 06:57:54 KST
+
+accel_lsb_per_g: 16384.0
+gyro_lsb_per_dps: 131.0
+accel_bias_lsb: [483.67, -372.64, -2409.43]
+accel_scale: [1.000000, 1.000000, 1.000000]
+apply_gyro_bias: false
+axes_solved: [true, true, true]

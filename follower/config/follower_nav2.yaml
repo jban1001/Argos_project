@@ -1,0 +1,203 @@
+# 팔로워 Nav2 설정 -- 지도 좌표로 이동하기 위한 최소 구성.
+#
+# 값의 출처
+# ---------
+# 아래 주행 한계는 2026-08-31 에 이 차체로 직접 잰 값이다 (tools/
+# measure_drive_scale.py, tools/measure_yaw_rate.py, 기준은 /follower/odom_scan).
+# 카탈로그 값이나 다른 로봇의 기본값을 옮겨 적은 것이 아니다.
+#
+#   직진   PWM   80   100   120   140   150   160
+#          m/s  .082 .107 .150 .164 .190 .182     (각 3 회 중앙값)
+#          pwm = 700.8 * v + 22.9,  최소 구동 PWM 80,  최고 0.190 m/s
+#
+#   회전   지령  10    20    30    45    60   deg/s
+#          실측 25.6  31.0  33.0  53.2  60.7 deg/s  (정착값, 앞 0.6 s 제외)
+#
+# 회전 하한이 이 설계의 제약이다
+# -----------------------------
+# 25 deg/s = 0.44 rad/s 아래로는 돌지 못한다.  10 deg/s 를 지령해도 25.6 이
+# 나온다.  마찰을 이기는 최소 차동 PWM 이 이미 그만큼의 각속도를 만들기
+# 때문이다.  그래서:
+#   - min_speed_theta 를 그 하한 위에 둔다.  더 작은 값을 명령해도 차체가
+#     따르지 못하므로 명령하지 않는 편이 낫다.
+#   - 제자리 회전(use_rotate_to_heading)을 쓰되 각속도를 하한 위로 준다.
+#   - 작은 방위 오차는 회전이 아니라 주행 중 곡률로 흡수시킨다.
+#
+# 아직 실측이 아닌 것 (명시해 둔다)
+# ---------------------------------
+#   footprint  차체 34.5 x 23.5 cm 는 실측이다.  다만 base_link 원점은
+#              follower_frames.yaml 에 따르면 "두 바퀴 축의 중점"이지 차체
+#              기하 중심이 아니다.  이 차체는 궤도식이고 궤도가 좌우 대칭이라
+#              접지면 중심 = 기하 중심으로 보고 앞뒤를 반으로 갈랐다.
+#              **궤도가 앞뒤로 치우쳐 있다면 이 값을 고쳐야 한다.**
+#   가속도 한계  잰 적이 없다.  아래 값은 안전측 선택이다.
+#   inflation_radius  선택값이다.  외접 반지름 0.209 m 에 여유를 둔 것이다.
+
+amcl:
+  ros__parameters:
+    use_sim_time: false
+
+/follower/bt_navigator:
+  ros__parameters:
+    global_frame: map
+    robot_base_frame: follower_base_link
+    odom_topic: /odometry/filtered
+    bt_loop_duration: 20
+    default_server_timeout: 500
+    wait_for_service_timeout: 5000
+
+/follower/controller_server:
+  ros__parameters:
+    controller_frequency: 10.0            # 스캔이 10 Hz 라 그 이상은 의미가 없다
+    odom_topic: /odometry/filtered
+    min_x_velocity_threshold: 0.02
+    min_theta_velocity_threshold: 0.40    # 회전 하한 0.44 rad/s 바로 아래
+    failure_tolerance: 0.3
+    progress_checker_plugins: ["progress_checker"]
+    goal_checker_plugins: ["goal_checker"]
+    controller_plugins: ["FollowPath"]
+
+    progress_checker:
+      plugin: "nav2_controller::SimpleProgressChecker"
+      required_movement_radius: 0.10      # 최고 0.19 m/s 라 10 초에 넉넉하다
+      movement_time_allowance: 10.0
+
+    goal_checker:
+      plugin: "nav2_controller::SimpleGoalChecker"
+      xy_goal_tolerance: 0.15
+      yaw_goal_tolerance: 0.20            # 0.20 rad = 11.5 deg.
+      stateful: true
+
+    FollowPath:
+      plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
+      desired_linear_vel: 0.18            # 실측 최고 0.190 아래
+      lookahead_dist: 0.40
+      min_lookahead_dist: 0.25
+      max_lookahead_dist: 0.60
+      use_velocity_scaled_lookahead_dist: true
+      lookahead_time: 2.0
+
+      # 제자리 회전.  각속도는 반드시 회전 하한(0.44) 위여야 한다.
+      use_rotate_to_heading: true
+      rotate_to_heading_angular_vel: 0.60
+      rotate_to_heading_min_angle: 0.70   # 40 deg 이상 틀어졌을 때만 제자리 회전
+      max_angular_accel: 1.2              # 실측 아님 -- 안전측 선택
+
+      # 곡률/장애물 감속.
+      use_regulated_linear_velocity_scaling: true
+      regulated_linear_scaling_min_radius: 0.35
+      regulated_linear_scaling_min_speed: 0.10
+      use_cost_regulated_linear_velocity_scaling: false
+
+      # 후진은 쓰지 않는다.  후진 중에는 라이다가 뒤를 못 본다.
+      allow_reversing: false
+
+      transform_tolerance: 0.2
+      approach_velocity_scaling_dist: 0.4
+      min_approach_linear_velocity: 0.08  # 최소 구동 PWM 80 -> 0.082 m/s
+
+/follower/planner_server:
+  ros__parameters:
+    expected_planner_frequency: 2.0
+    planner_plugins: ["GridBased"]
+    GridBased:
+      plugin: "nav2_navfn_planner::NavfnPlanner"
+      tolerance: 0.25
+      use_astar: false
+      allow_unknown: true
+
+/follower/behavior_server:
+  ros__parameters:
+    local_frame: follower_odom
+    global_frame: map
+    robot_base_frame: follower_base_link
+    cycle_frequency: 10.0
+    behavior_plugins: ["spin", "backup", "wait"]
+    spin:
+      plugin: "nav2_behaviors::Spin"
+    backup:
+      plugin: "nav2_behaviors::BackUp"
+    wait:
+      plugin: "nav2_behaviors::Wait"
+    max_rotational_vel: 1.00              # 실측 60.7 deg/s = 1.06 rad/s 아래
+    min_rotational_vel: 0.44              # 실측 회전 하한
+    rotational_acc_lim: 1.2               # 실측 아님 -- 안전측 선택
+
+/follower/velocity_smoother:
+  ros__parameters:
+    smoothing_frequency: 10.0
+    scale_velocities: false
+    feedback: "OPEN_LOOP"
+    max_velocity: [0.18, 0.0, 1.00]
+    min_velocity: [-0.18, 0.0, -1.00]
+    max_accel: [0.5, 0.0, 1.2]            # 실측 아님 -- 안전측 선택
+    max_decel: [-0.5, 0.0, -1.2]
+    odom_topic: /odometry/filtered
+    odom_duration: 0.1
+
+/follower/local_costmap:
+  local_costmap:
+    ros__parameters:
+      update_frequency: 5.0
+      publish_frequency: 2.0
+      global_frame: follower_odom
+      robot_base_frame: follower_base_link
+      rolling_window: true
+      width: 3
+      height: 3
+      resolution: 0.05
+      # 차체 34.5 x 23.5 cm.  base_link 를 궤도 접지면 중심으로 본 값이다.
+      footprint: "[[0.1725, 0.1175], [0.1725, -0.1175], [-0.1725, -0.1175], [-0.1725, 0.1175]]"
+      plugins: ["obstacle_layer", "inflation_layer"]
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        observation_sources: scan
+        scan:
+          topic: /follower/scan          # 마스킹된 쪽.  scan_raw 를 쓰면 차체를 장애물로 본다
+          max_obstacle_height: 2.0
+          clearing: true
+          marking: true
+          data_type: "LaserScan"
+          raytrace_max_range: 4.0
+          raytrace_min_range: 0.0
+          obstacle_max_range: 3.5
+          obstacle_min_range: 0.0
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        cost_scaling_factor: 3.0
+        inflation_radius: 0.35           # 외접 반지름 0.209 + 여유.  선택값
+      always_send_full_costmap: true
+
+/follower/global_costmap:
+  global_costmap:
+    ros__parameters:
+      update_frequency: 1.0
+      publish_frequency: 1.0
+      global_frame: map
+      robot_base_frame: follower_base_link
+      resolution: 0.05
+      track_unknown_space: true
+      footprint: "[[0.1725, 0.1175], [0.1725, -0.1175], [-0.1725, -0.1175], [-0.1725, 0.1175]]"
+      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
+      static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_topic: /map
+        map_subscribe_transient_local: true   # 메인 로봇이 latched 로 낸다
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        observation_sources: scan
+        scan:
+          topic: /follower/scan
+          max_obstacle_height: 2.0
+          clearing: true
+          marking: true
+          data_type: "LaserScan"
+          raytrace_max_range: 4.0
+          obstacle_max_range: 3.5
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        cost_scaling_factor: 3.0
+        inflation_radius: 0.35
+      always_send_full_costmap: true

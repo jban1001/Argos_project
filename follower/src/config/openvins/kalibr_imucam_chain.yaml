@@ -1,0 +1,33 @@
+%YAML:1.0
+# scripts/22_make_openvins_config.py 가 생성 -- 2026-08-28 22:45:44 KST
+#
+# distortion 은 4계수 radtan 이다. 우리 config/camera_info.yaml 의
+# plumb_bob 5계수에서 k3 를 뺀 것이 아니라, 저장된 체스보드 검출로
+# CALIB_FIX_K3 를 걸고 다시 적합한 결과다. 그냥 빼면 이미지 가장자리가
+# 28.5 px 어긋난다. 재적합 RMS 0.3866 px (5계수 적합은 0.3832 px).
+#
+# IMU noise: measured (stationary Allan) x inflation 3 (density) / 1 (random walk).
+# The inflation is ASSUMED, not measured -- see config/imu_noise.yaml.
+# Vibration while driving is real motion the 30 Hz camera cannot corroborate,
+# so the stationary figure is a lower bound on the effective noise.
+# T_imu_cam: rotation from camera to IMU R_CtoI, position of camera in IMU p_CinI
+#   회전은 광학흐름으로 측정했고 불확실성이 3~4도다. Kalibr 수준이
+#   아니므로 estimator_config 에서 calib_cam_extrinsics 를 켜 둔다.
+#   병진은 자로 잰 값이다 (로봇 기준 오른쪽 0, 정면 13.5, 위 19 cm).
+
+cam0:
+  T_imu_cam:
+    - [0.9911266203, 0.1326008601, 0.0092211053, 0.0066000000]
+    - [-0.0166252632, 0.0548399818, 0.9983564318, 0.1348000000]
+    - [0.1318772820, -0.9896509365, 0.0565578934, 0.1900000000]
+    - [0.0000000000, 0.0000000000, 0.0000000000, 1.0000000000]
+  cam_overlaps: []
+  camera_model: pinhole
+  distortion_coeffs: [0.14160070, -0.26649992, 0.00152318, 0.00197324]
+  distortion_model: radtan
+  intrinsics: [488.816447, 489.553232, 310.690777, 245.413114]
+  resolution: [640, 480]
+  rostopic: "/follower/camera/image_raw"
+  # t_imu = t_cam + timeshift_cam_imu. OpenVINS 는 이 값을
+  # calib_camimu_dt 로 읽어 message.timestamp + dt 로 쓴다.
+  timeshift_cam_imu: -0.026000

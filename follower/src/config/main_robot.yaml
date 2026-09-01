@@ -1,0 +1,108 @@
+# 메인 로봇과의 인터페이스.
+#
+# 이 파일의 값이 틀리면 팔로워 위치가 그만큼 틀린다. 조용히 흡수되지 않는다 --
+# src/follower_localization/test/test_transforms.py 의
+# test_wrong_marker_mount_shows_up_as_a_pose_error 가 그것을 확인한다:
+# 마커 장착 위치를 5 cm 틀리면 팔로워 위치가 정확히 5 cm 틀리고,
+# 방향을 10 도 틀리면 정확히 10 도 틀린다.
+
+# --- 네트워크 (확인됨) ---------------------------------------------------
+network:
+  main_host: odyssey.local     # mDNS 로 해석됨. DHCP 라 IP 대신 호스트명을 쓴다
+  main_ip_observed: 192.168.0.18
+  follower_host: argos2026.local
+  ros_domain_id: 42            # 양쪽 동일
+
+  # 이 WiFi 는 클라이언트 간 멀티캐스트를 막는다. 도메인이 같고 같은 서브넷인데도
+  # 두 로봇이 서로를 발견하지 못했다. 유니캐스트는 통과하므로 ROS_STATIC_PEERS 로
+  # 상대를 명시한다. 팔로워 쪽은 env.sh 에 넣었고, 메인 쪽도 같은 설정이 필요하다:
+  #     export ROS_STATIC_PEERS=argos2026.local
+  discovery: "static peers (multicast blocked by AP)"
+  # 무선 RTT 가 50~224 ms 로 흔들린다 (평균 110 ms). 메인이 0.5 m/s 로
+  # 움직이면 110 ms 는 5.5 cm 다. spec section 21 대로 카메라 관측 시각의
+  # 메인 pose 를 TF buffer 로 조회해야 하며, latest 를 그냥 쓰면 안 된다.
+  measured_rtt_ms: [50, 224]
+  clock_sync: "NTP active, KST, synchronized"   # 양쪽 모두 확인됨
+
+# --- ArUco 마커 ----------------------------------------------------------
+aruco:
+  marker_id: 5                 # 확인됨
+  marker_size_m: 0.115         # 확인됨. 검은 테두리 한 변 실측 115 mm
+  dictionary: DICT_4X4_50      # 24번 스크립트로 확인 (92 프레임, ID 5)
+                               # DICT_4X4_50/100/250/1000 이 전부 같은 92 프레임에서
+                               # 같은 ID 로 검출됐다. OpenCV 의 4X4 사전들은 포함
+                               # 관계라서 (50 은 1000 의 앞 50 개) 당연한 결과다.
+                               # 그중 가장 작은 것을 쓴다: 사전이 작을수록 마커 간
+                               # 해밍 거리가 커져 오검출이 줄어든다. ID 5 하나만
+                               # 쓰므로 50 이면 충분하다.
+
+  # T_L_A -- main_base_link 에서 본 마커. spec section 16 의 연쇄에 들어간다.
+  #
+  # base_link 는 메인 로봇 자신의 좌표 원점이다. AMCL 이 "로봇이 map 의 어디"
+  # 라고 할 때 그 지점. 차동구동이면 보통 두 바퀴 축의 중점이다.
+  # 정확한 위치는 URDF 나 TF 트리로 확인할 것:
+  #     ros2 run tf2_ros tf2_echo base_link base_footprint
+  #     ros2 param get /robot_state_publisher robot_description
+  # 실측은 LiDAR 기준으로 했다. base_link 는 URDF 상의 가상 점이라 줄자를 댈
+  # 곳이 없는 반면 LiDAR 는 눈에 보이고, base_link -> laser_frame 정적 변환이
+  # 발행되므로 변환할 수 있다.
+  mount_measured_from_laser:
+    backward_m: 0.195          # 실측: LiDAR 회전축에서 뒤로 195 mm
+    left_m: 0.0                # 좌우 중앙
+    down_m: 0.145              # LiDAR 보다 아래로 145 mm
+    facing: backward           # 확인됨. 마커 면이 로봇 뒤쪽(-x)을 향한다.
+                               # 팔로워가 뒤에서 보므로 자연스러운 배치다.
+
+  # base_link 기준값. scripts/25_resolve_marker_mount.py 가 위 실측값과
+  # base_link -> laser_frame 을 합쳐 채운다. 메인 스택이 떠 있어야 조회된다.
+  mount:
+    forward_m: -0.0770   # 25번: LiDAR 실측에서 변환
+    left_m: 0.0000   # 25번: LiDAR 실측에서 변환
+    up_m: -0.1250   # 25번: LiDAR 실측에서 변환
+    facing: backward
+
+# --- 토픽과 프레임 (팔로워에서 직접 관측해 확인) -------------------------
+topics:
+  map: /map                    # nav_msgs/OccupancyGrid, latched
+  main_pose: /amcl_pose        # geometry_msgs/PoseWithCovarianceStamped, frame_id=map
+  main_odom: /odom             # nav_msgs/Odometry, 39.3 Hz
+  scan: /scan                  # sensor_msgs/LaserScan
+  # Nav2 의 /plan, /local_plan, /received_global_plan 등은 전부 **앞으로 갈**
+  # 경로다. spec section 22 가 필요로 하는 "지나온 궤적" 토픽은 없다.
+  # 팔로워가 TF 를 받아 직접 쌓아야 한다.
+  traveled_trajectory: null
+
+frames:
+  map: map
+  main_odom: odom
+  main_base: base_link
+  main_laser: laser_frame
+  # 관측된 TF 체인:  map -> odom -> base_link -> laser_frame
+  #   map -> odom        AMCL
+  #   odom -> base_link  wheel_odometry_node
+  #   base_link -> laser static
+  #
+  # 팔로워 프레임은 follower_odom / follower_base_link / follower_camera /
+  # follower_imu_link 이므로 이름이 겹치지 않는다 (spec section 32).
+  # 두 로봇이 같은 map 아래 각자의 가지를 붙이는 형태가 된다.
+
+# --- 관측된 특성 ---------------------------------------------------------
+observed:
+  # AMCL 은 로봇이 움직일 때만 발행한다. 정지 상태에서는 아무것도 오지 않아
+  # 주기를 잴 수 없었다. 그래서 /amcl_pose 토픽을 폴링하지 말고 TF 의
+  # map -> base_link 를 시각 지정 조회할 것. 그쪽은 wheel odometry 덕에
+  # 연속이고, spec section 21 이 요구하는 방식이기도 하다.
+  amcl_pose_is_event_driven: true
+
+  odom_rate_hz: 39.3
+  tf_rate_hz: 57.1
+
+  # 무선 지연 실측 (30초, odom->base_link 1494건).
+  # 이 값이 곧바로 위치 오차가 되지는 않는다. 스탬프 기반 조회는 지연이
+  # 있어도 정확하고 대신 늦다. 늦은 전역 보정은 이 구조에서 허용된다 --
+  # 빠른 움직임은 VIO 가 담당하기 때문이다. 다만 lookup 이 "미래로 외삽"
+  # 실패하지 않도록 ArUco 관측을 버퍼에 담아 두었다가 처리해야 한다.
+  tf_age_ms: {median: 73.9, p95: 539.3, max: 1452.8}
+  tf_arrival_gap_ms: {median: 16.9, max: 965.5}
+  # 만약 "최신 TF" 를 그냥 쓴다면 메인이 0.5 m/s 로 움직일 때
+  # 중앙값 3.7 cm, p95 27 cm 의 위치 오차가 된다. 그래서 쓰지 않는다.

@@ -1,0 +1,69 @@
+# Follower camera: Logitech BRIO on /dev/video0.
+#
+# Every automatic feature is switched OFF. This is not tidiness, it is a
+# requirement: autofocus changes the focal length, so an intrinsic calibration
+# taken at one focus is wrong at another; auto-exposure changes image
+# brightness between frames, which VIO feature tracking reads as motion; and
+# exposure_dynamic_framerate silently drops the frame rate in dim light, which
+# breaks the constant-rate assumption the estimator is built on.
+/follower/camera:
+  ros__parameters:
+    video_device: /dev/video0
+
+    # YUYV rather than MJPG: no JPEG ringing around the corners that both the
+    # VIO tracker and the ArUco detector rely on. 640x480 at 30 fps is the
+    # highest uncompressed mode this camera offers over USB 2.0.
+    pixel_format: YUYV
+    image_size: [640, 480]
+
+    # Both consumers (VIO and ArUco) want grayscale, so convert once here
+    # instead of publishing rgb8 and converting twice downstream.
+    output_encoding: mono8
+
+    camera_frame_id: follower_camera
+    # camera_info.yaml 의 camera_name 과 반드시 같아야 한다. 없으면 v4l2_camera
+    # 가 장치명(logitech_brio)을 쓰고, 이름이 다르면 camera_info_manager 가
+    # 캘리브레이션을 싣지 않는다. 그러면 aruco_pose 가 내부 파라미터를 못 받아
+    # _on_image 에서 조용히 반환하고, status 를 한 번도 발행하지 않는다 --
+    # 노드는 살아 있는데 아무 일도 안 하는 것처럼 보인다 (2026-08-29 실측).
+    camera_name: follower_camera
+    camera_info_url: file:///home/doorian0615/follower_ws/config/camera_info.yaml
+
+    # --- locked controls ---
+    # v4l2_camera declares each parameter with the V4L2 control's own type, so
+    # controls listed as (bool) by `v4l2-ctl -l` MUST be given as true/false.
+    # Passing 0 instead of false makes the node abort at startup with
+    # InvalidParameterTypeException. Menu and integer controls stay numeric.
+    focus_automatic_continuous: false
+    focus_absolute: 45         # measured by 07_check_camera.py --focus-sweep
+                               # camera_info.yaml is only valid at THIS value
+    auto_exposure: 1           # menu: 1 = Manual Mode, 3 = Aperture Priority
+
+    # Unit is 100 us, confirmed by measurement rather than by the UVC spec:
+    # sweeping this control, the frame rate held at 30 Hz up to 333 and then
+    # fell as 1/exposure (500 -> 20.0 fps, 1200 -> 8.6 fps), which only lines
+    # up if 500 means 50 ms.  So this is a 5 ms exposure.
+    #
+    # 5 ms is short on purpose.  Motion blur is fx * omega * exposure, so at a
+    # 30 deg/s turn a 25 ms exposure smears a feature across 6.4 px; 5 ms
+    # smears it across 1.3 px.  Blur cannot be undone downstream -- it is a
+    # low-pass that zeroes the high frequencies corner detectors need, and
+    # deconvolving it back invents ringing that the detector then reports as
+    # corners which do not repeat between frames.
+    #
+    # The brightness lost to the short exposure is bought back with gain
+    # below, which costs sensor noise but no blur.  Measured feature counts
+    # (goodFeaturesToTrack, capped at 300) say that trade is worth taking:
+    #     5 ms + gain 60 -> 226 features, 1.3 px blur, mean level 128
+    #    25 ms + gain  0 -> 205 features, 6.4 px blur, mean level 113
+    exposure_time_absolute: 50
+    exposure_dynamic_framerate: false
+    white_balance_automatic: false
+    white_balance_temperature: 4000
+    backlight_compensation: 0
+    # Raised from 0 to hold mean image level near 128 at the 5 ms exposure
+    # above.  Tuned under the room lighting present at calibration time -- a
+    # materially darker operating environment needs this re-checked, since
+    # gain, not exposure, is the knob that absorbs a lighting change here.
+    gain: 60
+    power_line_frequency: 2    # 2 = 60 Hz (Korea)

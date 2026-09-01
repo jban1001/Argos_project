@@ -1,0 +1,119 @@
+%YAML:1.0
+# scripts/22_make_openvins_config.py 가 생성 -- 2026-08-25 22:03:23 KST
+# 팔로워 로봇: 단안 카메라 + MPU6050, Raspberry Pi 5
+
+verbosity: "INFO"
+use_fej: true
+integration: "rk4"
+
+# 카메라가 하나뿐이다.
+use_stereo: false
+max_cameras: 1
+
+# extrinsic 은 광학흐름 측정값이고 3~4도 불확실하다. Kalibr 를 쓸 수
+# 없어서 그렇게 구했으므로, 온라인 보정을 반드시 켠다.
+calib_cam_extrinsics: true
+# intrinsic 의 fx 불확실성이 1.54% 다. 단안 VIO 의 미터 스케일에 그대로
+# 실리므로 함께 다듬게 한다.
+calib_cam_intrinsics: true
+# 시간 오프셋도 측정값이라 온라인으로 확인시킨다.
+calib_cam_timeoffset: true
+calib_imu_intrinsics: false
+calib_imu_g_sensitivity: false
+
+max_clones: 11
+max_slam: 50
+max_slam_in_update: 25
+max_msckf_in_update: 40
+dt_slam_delay: 1
+
+# 가속도계 캘리브레이션이 |a| = 9.80665 가 되도록 맞춰져 있다.
+# 국소 중력의 실제 값과의 차이는 이미 bias 에 흡수됐으므로, 여기서는
+# 캘리브레이션과 일관된 값을 쓴다.
+gravity_mag: 9.80665
+
+feat_rep_msckf: "GLOBAL_3D"
+feat_rep_slam: "ANCHORED_MSCKF_INVERSE_DEPTH"
+feat_rep_aruco: "ANCHORED_MSCKF_INVERSE_DEPTH"
+
+# 지상 주행 로봇은 정지 구간이 길다. 정지 감지를 켜면 그 동안의
+# 드리프트를 막을 수 있다.
+try_zupt: false
+zupt_chi2_multipler: 0
+zupt_max_velocity: 0.1
+zupt_noise_multiplier: 10
+zupt_max_disparity: 0.5
+zupt_only_at_beginning: false
+
+init_window_time: 2.0
+init_imu_thresh: 1.5
+init_max_disparity: 10.0
+init_max_features: 50
+# 동적 초기화는 Ceres 를 쓰고 스레드를 더 먹는다. 정지 상태에서
+# 시작할 수 있으므로 정적 초기화로 충분하다.
+init_dyn_use: false
+init_dyn_mle_opt_calib: false
+init_dyn_mle_max_iter: 50
+init_dyn_mle_max_time: 0.05
+init_dyn_mle_max_threads: 2
+init_dyn_num_pose: 6
+init_dyn_min_deg: 10.0
+init_dyn_inflation_ori: 10
+init_dyn_inflation_vel: 100
+init_dyn_inflation_bg: 10
+init_dyn_inflation_ba: 100
+init_dyn_min_rec_cond: 1e-12
+init_dyn_bias_g: [ 0.0, 0.0, 0.0 ]
+init_dyn_bias_a: [ 0.0, 0.0, 0.0 ]
+
+# Phase 5 는 측정하는 단계다. 타이밍을 남겨야 num_pts / max_slam 을
+# 짐작이 아니라 실측으로 조일 수 있다.
+record_timing_information: true
+record_timing_filepath: "/tmp/ov_timing.txt"
+save_total_state: false
+filepath_est: "/tmp/ov_estimate.txt"
+filepath_std: "/tmp/ov_estimate_std.txt"
+filepath_gt: "/tmp/ov_groundtruth.txt"
+
+use_klt: true
+num_pts: 200
+fast_threshold: 20
+grid_x: 5
+grid_y: 5
+min_px_dist: 10
+knn_ratio: 0.70
+# 카메라는 30 Hz 로 들어오지만 20 Hz 로만 추적한다. Pi 의 연산과 열
+# 예산을 아끼고, VIO 정확도에 미치는 영향은 작다.
+track_frequency: 20.0
+downsample_cameras: false
+# 4코어 지속 부하는 84.2 도로 소프트 온도 한계에 걸린다 (20번 스크립트).
+num_opencv_threads: 2
+histogram_method: "HISTOGRAM"
+
+use_aruco: false
+num_aruco: 1024
+downsize_aruco: true
+
+up_msckf_sigma_px: 1
+up_msckf_chi2_multipler: 1
+up_slam_sigma_px: 1
+up_slam_chi2_multipler: 1
+up_aruco_sigma_px: 1
+up_aruco_chi2_multipler: 1
+use_mask: false
+
+# --- 시뮬레이션 전용 (run_simulation 에서만 사용) ---
+# 우리 로봇의 실제 주기를 그대로 넣는다. 카메라 30 Hz, IMU 200 Hz.
+sim_seed_state_init: 0
+sim_seed_preturb: 0
+sim_seed_measurements: 0
+sim_do_perturbation: false
+sim_traj_path: "/home/doorian0615/follower_ws/src/open_vins/ov_data/sim/euroc_V1_01_easy.txt"
+sim_distance_threshold: 1.1
+sim_freq_cam: 30
+sim_freq_imu: 200
+sim_min_feature_gen_dist: 5.0
+sim_max_feature_gen_dist: 7.0
+
+relative_config_imu: "kalibr_imu_chain.yaml"
+relative_config_imucam: "kalibr_imucam_chain.yaml"

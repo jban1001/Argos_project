@@ -1,0 +1,11 @@
+# Kalibr IMU 설정 -- scripts/15_export_kalibr_configs.py 가 생성
+# 출처: imu_noise.yaml
+#
+# random walk 값이 상한일 수 있습니다. Kalibr 입장에서 과대평가는
+# 안전한 방향입니다: IMU 를 덜 신뢰하고 시각 관측에 더 의존할 뿐입니다.
+rostopic: /follower/imu/data_raw
+update_rate: 200.0
+accelerometer_noise_density: 2.11024400e-03
+accelerometer_random_walk: 7.28318700e-04
+gyroscope_noise_density: 8.18797100e-05
+gyroscope_random_walk: 3.16868100e-05

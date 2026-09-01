@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- Fast DDS 공유메모리 전송을 끄고 UDP 만 쓴다.
+
+     왜: 2026-09-02 팔로워에서 /dev/shm 의 fastrtps 잠금 파일이 200 개 넘게
+     쌓여 SHM 전송이 죽었다. 증상이 특이하다. 원격(메인봇) 노드 27 개는
+     보이는데 같은 기계의 /follower 노드는 0 개로 보인다. 로컬 통신만
+     SHM 을 타기 때문이다. 그 결과 lifecycle set/get 이 "Node not found" 를
+     내고 Nav2 를 활성화할 수 없었다.
+
+     UDP 만 쓰면 로컬도 루프백으로 돌아 이 실패 방식이 사라진다.
+     같은 기계 안 통신은 조금 느려지지만 이 로봇의 데이터량에서는 문제없다. -->
+<dds xmlns="http://www.eprosima.com">
+  <profiles>
+    <transport_descriptors>
+      <transport_descriptor>
+        <transport_id>udp_only</transport_id>
+        <type>UDPv4</type>
+      </transport_descriptor>
+    </transport_descriptors>
+    <participant profile_name="udp_participant" is_default_profile="true">
+      <rtps>
+        <userTransports>
+          <transport_id>udp_only</transport_id>
+        </userTransports>
+        <useBuiltinTransports>false</useBuiltinTransports>
+      </rtps>
+    </participant>
+  </profiles>
+</dds>

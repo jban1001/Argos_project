@@ -1,0 +1,38 @@
+# follower_serial_bridge parameters.
+# Values marked <CONFIGURE> must be measured on the real hardware; they are
+# left explicit rather than guessed (spec section 27/35).
+/follower/follower_serial_bridge:
+  ros__parameters:
+    port: /dev/ttyACM0
+    baud: 230400
+
+    imu_frame_id: follower_imu_link
+
+    # Produced by scripts/13_calibrate_accel_sweep.py. Without it this unit
+    # publishes |a| = 8.38 m/s^2 instead of 9.81, which would put a 15% error
+    # straight into the VIO's gravity direction.
+    calibration_file: /home/doorian0615/follower_ws/config/imu_calibration.yaml
+
+    expected_imu_rate: 200.0
+
+    # Second line of defence behind the MCU's own 350 ms timeout.
+    command_timeout: 0.5
+    reconnect_period: 2.0
+
+    # Mirror MAX_PWM and the yaw clamp in followingbot_mega.ino.
+    max_pwm: 180
+    max_yaw_rate: 90.0
+
+    # The MCU clock is modelled as offset + skew, both fitted from per-window
+    # minima of (host_time - mcu_time). This robot measures 928 ppm of skew,
+    # which is normal for the Mega's 16 MHz ceramic resonator; max_skew_ppm is
+    # only a sanity clamp on the fit (datasheet worst case is 5000 ppm).
+    max_skew_ppm: 5000.0
+    clock_window_s: 1.0
+    clock_history: 60
+
+    # Single-sample noise, measured on this unit at 200 Hz with DLPF 41/44 Hz
+    # (scripts/02_check_imu_stream.py). Re-measure if CFG_DLPF or the
+    # full-scale range changes.
+    gyro_noise_std_dps: 0.0433
+    accel_noise_std_ms2: 0.0282
